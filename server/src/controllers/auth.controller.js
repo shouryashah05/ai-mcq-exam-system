@@ -1,13 +1,24 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
+const { normalizeUserIdentity, serializeUser } = require('../utils/userIdentity');
+
+const selfRegistrationDisabled = async (req, res, next) => {
+  try {
+    res.status(403);
+    throw new Error('Self-signup is disabled. Please contact your administrator to create an account.');
+  } catch (err) {
+    next(err);
+  }
+};
 
 const register = async (req, res, next) => {
   try {
-    let { name, email, password, role = 'student', enrollmentNo } = req.body;
-    if (!name || !email || !password) {
+    let { name, firstName, lastName, email, password, role = 'student', enrollmentNo } = req.body;
+    const normalizedIdentity = normalizeUserIdentity({ name, firstName, lastName });
+    if (!normalizedIdentity.name || !email || !password) {
       res.status(400);
-      throw new Error('Name, email, and password are required');
+      throw new Error('First name, last name, email, and password are required');
     }
 
     // Auto-generate enrollmentNo for students if not provided (convenient for tests/dev)
@@ -44,7 +55,9 @@ const register = async (req, res, next) => {
     const verificationToken = crypto.randomBytes(32).toString('hex');
 
     const user = await User.create({
-      name,
+      name: normalizedIdentity.name,
+      firstName: normalizedIdentity.firstName,
+      lastName: normalizedIdentity.lastName,
       email,
       password: hashed,
       role,
@@ -57,7 +70,7 @@ const register = async (req, res, next) => {
     if (role === 'student') {
       try {
         const { sendVerificationEmail } = require('../services/email.service');
-        await sendVerificationEmail(user.email, verificationToken, user.name);
+        await sendVerificationEmail(user.email, verificationToken, normalizedIdentity.name);
       } catch (emailError) {
         console.error('Failed to send verification email:', emailError);
         // Don't fail registration if email fails, but log it
@@ -84,28 +97,14 @@ const register = async (req, res, next) => {
       });
 
       res.status(201).json({
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          enrollmentNo: user.enrollmentNo,
-          isVerified: user.isVerified
-        },
+        user: serializeUser(user),
         token,
         message: 'Registration successful.'
       });
     } else {
       // Student registration - no token until verified
       res.status(201).json({
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          enrollmentNo: user.enrollmentNo,
-          isVerified: user.isVerified
-        },
+        user: serializeUser(user),
         message: 'Registration successful! Please check your email to verify your account before logging in.'
       });
     }
@@ -141,6 +140,11 @@ const login = async (req, res, next) => {
       throw new Error('Invalid credentials');
     }
 
+    if (user.isActive === false) {
+      res.status(403);
+      throw new Error('Your account has been deactivated. Please contact your administrator.');
+    }
+
     // Check if email is verified (only for students)
     if (user.role === 'student' && !user.isVerified) {
       res.status(403);
@@ -152,14 +156,7 @@ const login = async (req, res, next) => {
     });
 
     res.json({
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        enrollmentNo: user.enrollmentNo,
-        isVerified: user.isVerified
-      },
+      user: serializeUser(user),
       token,
     });
   } catch (err) {
@@ -167,4 +164,4 @@ const login = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login };
+module.exports = { register, login, selfRegistrationDisabled };

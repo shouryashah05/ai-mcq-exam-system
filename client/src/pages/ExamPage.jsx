@@ -4,6 +4,7 @@ import { getExamById } from '../services/examService';
 import { getQuestionById } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SaveIndicator from '../components/SaveIndicator';
+import { showToast } from '../utils/appEvents';
 
 export default function ExamPage({ examId, onComplete }) {
   const [attempt, setAttempt] = useState(null);
@@ -211,7 +212,7 @@ export default function ExamPage({ examId, onComplete }) {
       try { localStorage.removeItem(`attempt_${examId}`); localStorage.removeItem(`attempt_${examId}_idx`); } catch (e) { }
       onComplete(res);
     } catch (err) {
-      alert('Failed to submit: ' + err.message);
+      showToast(`Failed to submit: ${err.message}`, { type: 'error' });
       setSubmitting(false);
     }
   };

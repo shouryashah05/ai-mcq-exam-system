@@ -4,7 +4,12 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 const PlacementReadinessCard = ({ data }) => {
     if (!data) return null;
 
-    const { score, level, insights, breakdown } = data;
+    const score = Number.isFinite(data.score) ? data.score : 0;
+    const level = data.level || 'Beginner';
+    const insights = Array.isArray(data.insights) ? data.insights : [];
+    const breakdown = data.breakdown || {};
+    const weakAreas = Array.isArray(data.weakAreas) ? data.weakAreas : [];
+    const actionPlan = Array.isArray(data.actionPlan) ? data.actionPlan : [];
 
     // Data for the gauge chart (half pie)
     const gaugeData = [
@@ -61,15 +66,15 @@ const PlacementReadinessCard = ({ data }) => {
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', marginBottom: '2rem' }}>
                     <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#f8f9fa', borderRadius: '8px' }}>
                         <div style={{ fontWeight: 'bold', color: '#666' }}>Accuracy</div>
-                        <div style={{ fontSize: '1.5rem' }}>{breakdown.accuracy}%</div>
+                        <div style={{ fontSize: '1.5rem' }}>{breakdown.accuracy ?? 0}%</div>
                     </div>
                     <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#f8f9fa', borderRadius: '8px' }}>
                         <div style={{ fontWeight: 'bold', color: '#666' }}>Consistency</div>
-                        <div style={{ fontSize: '1.5rem' }}>{breakdown.consistency}%</div>
+                        <div style={{ fontSize: '1.5rem' }}>{breakdown.consistency ?? 0}%</div>
                     </div>
                     <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#f8f9fa', borderRadius: '8px' }}>
                         <div style={{ fontWeight: 'bold', color: '#666' }}>Topic Coverage</div>
-                        <div style={{ fontSize: '1.5rem' }}>{breakdown.coverage}%</div>
+                        <div style={{ fontSize: '1.5rem' }}>{breakdown.coverage ?? 0}%</div>
                     </div>
                 </div>
                 <h4>🤖 AI Insights</h4>
@@ -80,22 +85,22 @@ const PlacementReadinessCard = ({ data }) => {
                     {(!insights || insights.length === 0) && <li>Keep taking more tests to get personalized insights!</li>}
                 </ul>
 
-                {data.actionPlan && data.actionPlan.length > 0 && (
+                {actionPlan.length > 0 && (
                     <div style={{ marginTop: '1rem' }}>
                         <h4>📝 Action Plan</h4>
                         <ul style={{ paddingLeft: '1.2rem' }}>
-                            {data.actionPlan.map((a, i) => (
+                            {actionPlan.map((a, i) => (
                                 <li key={i} style={{ marginBottom: '0.5rem' }}>{a}</li>
                             ))}
                         </ul>
                     </div>
                 )}
 
-                {data.weakAreas && data.weakAreas.length > 0 && (
+                {weakAreas.length > 0 && (
                     <div style={{ marginTop: '1rem' }}>
                         <h4>🔍 Weak Areas</h4>
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            {data.weakAreas.map((w, idx) => (
+                            {weakAreas.map((w, idx) => (
                                 <div key={idx} style={{ background: '#fff5f5', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ffd8d8' }}>
                                     <div style={{ fontWeight: '600' }}>{w.topic}</div>
                                     <div style={{ fontSize: '0.9rem', color: '#6b6b6b' }}>{w.subject} • {w.attempts} attempts • {w.accuracy}%</div>

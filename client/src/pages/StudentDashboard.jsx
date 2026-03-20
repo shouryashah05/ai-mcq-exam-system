@@ -56,7 +56,7 @@ export default function StudentDashboard() {
         overflow: 'hidden'
       }}>
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 800 }}>Hello, {user?.name || 'Student'}! 👋</h1>
+          <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 800 }}>Hello, {user?.firstName || user?.name || 'Student'}! 👋</h1>
         </div>
       </div>
 

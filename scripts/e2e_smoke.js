@@ -5,10 +5,12 @@ const adminCreds = {
   email: process.env.ADMIN_EMAIL || 'admin@example.com',
   password: process.env.ADMIN_PASSWORD || 'ChangeMe123!'
 };
-const studentCreds = { name: 'Smoke Student', email: `smoke+${Date.now()}@example.com`, password: 'password123' };
-const verifiedStudentCreds = {
-  email: process.env.STUDENT_EMAIL || 'student@example.com',
-  password: process.env.STUDENT_PASSWORD || 'ChangeMe123!'
+const studentCreds = {
+  name: 'Smoke Student',
+  email: `smoke+${Date.now()}@example.com`,
+  password: 'Password123!',
+  enrollmentNo: `SMOKE${Date.now()}`,
+  role: 'student'
 };
 
 async function req(path, opts = {}) {
@@ -62,39 +64,34 @@ async function req(path, opts = {}) {
     const exam = r.body.exam;
     console.log('-> exam created', exam._id);
 
-    console.log('4) Register student');
-    r = await req('/auth/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(studentCreds) });
-    if (r.status !== 201) {
-      console.log('Register returned', r.status, r.body);
-    }
+    console.log('4) Admin creates student');
+    r = await req('/users', { method: 'POST', headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${adminToken}`}, body: JSON.stringify(studentCreds) });
+    if (r.status !== 201) throw new Error('Admin student creation failed: ' + JSON.stringify(r));
 
-    let studentToken = r.body && r.body.token;
-    if (!studentToken) {
-      console.log('-> registration requires email verification; using verified student account for protected flow');
-      const loginR = await req('/auth/login', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(verifiedStudentCreds)
-      });
-      if (loginR.status !== 200) throw new Error('Verified student login failed: ' + JSON.stringify(loginR));
-      studentToken = loginR.body.token;
-    }
+    console.log('5) Login as created student');
+    const loginR = await req('/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: studentCreds.email, password: studentCreds.password })
+    });
+    if (loginR.status !== 200) throw new Error('Created student login failed: ' + JSON.stringify(loginR));
+    const studentToken = loginR.body.token;
 
     console.log('-> student token ok');
 
-    console.log('5) Start exam as student');
+    console.log('6) Start exam as student');
     r = await req('/attempts/start', { method: 'POST', headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${studentToken}`}, body: JSON.stringify({ examId: exam._id }) });
     if (r.status !== 201 && r.status !== 200) throw new Error('Start exam failed: ' + JSON.stringify(r));
     const attempt = r.body.attempt;
     console.log('-> attempt started', attempt._id);
 
     const answer = { questionId: attempt.answers[0].questionId || attempt.answers[0].question, selectedOption: 1 };
-    console.log('6) Save answer', answer);
+    console.log('7) Save answer', answer);
     r = await req(`/attempts/${attempt._id}/answer`, { method: 'PUT', headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${studentToken}`}, body: JSON.stringify(answer) });
     if (r.status !== 200) throw new Error('Save answer failed: ' + JSON.stringify(r));
     console.log('-> answer saved');
 
-    console.log('7) Submit exam');
+    console.log('8) Submit exam');
     r = await req(`/attempts/${attempt._id}/submit`, { method: 'POST', headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${studentToken}`} });
     if (r.status !== 200) throw new Error('Submit failed: ' + JSON.stringify(r));
     console.log('-> submitted, result:');

@@ -20,7 +20,9 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
             const salt = await bcrypt.genSalt(10);
             const hashed = await bcrypt.hash(password, salt);
             user = await User.create({
-                name: 'Administrator',
+                name: 'Admin User',
+                firstName: 'Admin',
+                lastName: 'User',
                 email,
                 password: hashed,
                 role: 'admin',
@@ -31,6 +33,9 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
             console.log('Admin user found. Updating password...');
             const salt = await bcrypt.genSalt(10);
             const hashed = await bcrypt.hash(password, salt);
+            user.name = 'Admin User';
+            user.firstName = 'Admin';
+            user.lastName = 'User';
             user.password = hashed;
             await user.save();
         }
@@ -45,6 +50,8 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
             const hashed = await bcrypt.hash(password, salt);
             student = await User.create({
                 name: 'Student User',
+                firstName: 'Student',
+                lastName: 'User',
                 email: studentEmail,
                 password: hashed,
                 role: 'student',
@@ -55,6 +62,9 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
             console.log('Student user found. Updating password...');
             const salt = await bcrypt.genSalt(10);
             const hashed = await bcrypt.hash(password, salt);
+            student.name = 'Student User';
+            student.firstName = 'Student';
+            student.lastName = 'User';
             student.password = hashed;
             student.isVerified = true;
             await student.save();

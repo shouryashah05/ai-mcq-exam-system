@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
+const { normalizeUserIdentity } = require('../utils/userIdentity');
 
 const userSchema = new mongoose.Schema({
+  firstName: { type: String, trim: true, default: '' },
+  lastName: { type: String, trim: true, default: '' },
   name: { type: String, required: true, trim: true },
   email: { type: String, required: true, lowercase: true, trim: true }, // Required for verification/password reset
   password: { type: String, required: true },
@@ -12,6 +15,19 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: { type: String, default: null }, // For password reset
   resetPasswordExpires: { type: Date, default: null }, // Token expiration
   createdAt: { type: Date, default: Date.now },
+});
+
+userSchema.pre('validate', function syncNameFields(next) {
+  const normalizedIdentity = normalizeUserIdentity({
+    name: this.name,
+    firstName: this.firstName,
+    lastName: this.lastName,
+  });
+
+  this.name = normalizedIdentity.name;
+  this.firstName = normalizedIdentity.firstName;
+  this.lastName = normalizedIdentity.lastName;
+  next();
 });
 
 module.exports = mongoose.model('User', userSchema);

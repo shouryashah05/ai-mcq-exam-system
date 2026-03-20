@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const ExamAttempt = require('../models/examAttempt.model');
+const { serializeUser } = require('../utils/userIdentity');
 
 const round = (value, digits = 2) => {
     if (!Number.isFinite(value)) return 0;
@@ -114,21 +115,25 @@ const buildQuery = ({ userId, startDate, endDate }) => {
 };
 
 const fetchUserSummary = async (userId) => {
-    const user = await User.findById(userId).select('name email');
+    const user = await User.findById(userId).select('name firstName lastName email');
     if (!user) {
         return null;
     }
 
+    const serializedUser = serializeUser(user);
+
     return {
-        userId: String(user._id),
-        name: user.name,
-        email: user.email,
+        userId: String(serializedUser._id),
+        name: serializedUser.name,
+        firstName: serializedUser.firstName,
+        lastName: serializedUser.lastName,
+        email: serializedUser.email,
     };
 };
 
 const fetchAttempts = async ({ userId, startDate, endDate }) => {
     const attempts = await ExamAttempt.find(buildQuery({ userId, startDate, endDate }))
-        .populate('user', 'name email role')
+        .populate('user', 'name firstName lastName email role')
         .populate('exam', 'title totalMarks passingMarks')
         .populate('answers.questionId', 'subject topic marks')
         .sort({ endTime: 1, createdAt: 1 });
@@ -147,11 +152,14 @@ async function getSubjectWiseStudentReport({ subject, startDate, endDate }) {
         }
 
         const userId = String(attempt.user._id);
+        const reportUser = serializeUser(attempt.user);
         if (!students.has(userId)) {
             students.set(userId, {
                 userId,
-                name: attempt.user.name,
-                email: attempt.user.email,
+            name: reportUser.name,
+            firstName: reportUser.firstName,
+            lastName: reportUser.lastName,
+            email: reportUser.email,
                 testsTaken: 0,
                 questionsAttempted: 0,
                 answeredQuestions: 0,
@@ -197,6 +205,8 @@ async function getSubjectWiseStudentReport({ subject, startDate, endDate }) {
         return {
             userId: student.userId,
             name: student.name,
+            firstName: student.firstName,
+            lastName: student.lastName,
             email: student.email,
             testsTaken: student.testsTaken,
             questionsAttempted: student.questionsAttempted,

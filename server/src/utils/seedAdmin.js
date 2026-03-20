@@ -34,6 +34,8 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
 
     user = await User.create({
       name,
+      firstName: 'Admin',
+      lastName: 'User',
       email,
       password: hashed,
       role: 'admin',

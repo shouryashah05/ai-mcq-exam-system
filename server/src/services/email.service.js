@@ -79,6 +79,26 @@ const sendVerificationEmail = async (email, token, name) => {
  * @param {string} name - User's name
  */
 const sendPasswordResetEmail = async (email, token, name) => {
+  return sendPasswordActionEmail(email, token, name, {
+    subject: 'Password Reset Request - AI MCQ Exam System',
+    heading: 'Password Reset Request',
+    intro: 'We received a request to reset your password. Click the button below to reset it:',
+    buttonText: 'Reset Password',
+    expiryText: 'This link will expire in 1 hour. If you didn\'t request a password reset, please ignore this email.',
+  });
+};
+
+const sendAccountSetupEmail = async (email, token, name) => {
+  return sendPasswordActionEmail(email, token, name, {
+    subject: 'Set Up Your Account - AI MCQ Exam System',
+    heading: 'Complete Your Account Setup',
+    intro: 'An administrator created your account. Click the button below to set your password and activate access:',
+    buttonText: 'Set Password',
+    expiryText: 'This link will expire in 24 hours. If you were not expecting this invitation, you can ignore this email.',
+  });
+};
+
+const sendPasswordActionEmail = async (email, token, name, options) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
@@ -87,23 +107,23 @@ const sendPasswordResetEmail = async (email, token, name) => {
     const mailOptions = {
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to: email,
-        subject: 'Password Reset Request - AI MCQ Exam System',
+        subject: options.subject,
         html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Password Reset Request</h2>
+        <h2 style="color: #333;">${options.heading}</h2>
         <p>Hi ${name},</p>
-        <p>We received a request to reset your password. Click the button below to reset it:</p>
+        <p>${options.intro}</p>
         <div style="text-align: center; margin: 30px 0;">
           <a href="${resetUrl}" 
              style="background-color: #2196F3; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; display: inline-block;">
-            Reset Password
+            ${options.buttonText}
           </a>
         </div>
         <p>Or copy and paste this link in your browser:</p>
         <p style="color: #666; word-break: break-all;">${resetUrl}</p>
         <p style="color: #999; font-size: 12px; margin-top: 30px;">
-          This link will expire in 1 hour. If you didn't request a password reset, please ignore this email.
+          ${options.expiryText}
         </p>
       </div>
     `,
@@ -123,4 +143,5 @@ module.exports = {
     generateToken,
     sendVerificationEmail,
     sendPasswordResetEmail,
+  sendAccountSetupEmail,
 };

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { requestLogout, showToast } from '../utils/appEvents';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || 'http://localhost:5000/api',
@@ -22,9 +23,9 @@ api.interceptors.response.use(
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         // Inform the app that a logout should happen (AuthContext listens for this)
-        window.dispatchEvent(new CustomEvent('app:logout'));
+        requestLogout({ to: '/login' });
         // notify user
-        window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'warning', message: 'Session expired or unauthorized. Please login again.' } }));
+        showToast('Session expired or unauthorized. Please login again.', { type: 'warning' });
       } catch (e) {
         // no-op
       }

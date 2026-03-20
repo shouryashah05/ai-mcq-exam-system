@@ -369,7 +369,17 @@ exports.getPlacementReadiness = async (req, res) => {
                 data: {
                     score: 0,
                     level: 'Beginner',
-                    insights: ['Not enough data to calculate readiness. Take more tests!']
+                    breakdown: {
+                        accuracy: 0,
+                        consistency: 0,
+                        coverage: 0,
+                        speed: 0,
+                        avgTimePerQuestion: 0,
+                    },
+                    insights: ['Not enough data to calculate readiness. Take more tests!'],
+                    weakAreas: [],
+                    strongAreas: [],
+                    actionPlan: [],
                 }
             });
         }

@@ -12,6 +12,14 @@ const verifyToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select('-password');
+    if (!req.user) {
+      res.status(401);
+      return next(new Error('User not found'));
+    }
+    if (req.user.isActive === false) {
+      res.status(403);
+      return next(new Error('Your account has been deactivated. Please contact your administrator.'));
+    }
     next();
   } catch (err) {
     res.status(401);

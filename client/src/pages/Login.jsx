@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import axios from 'axios';
+import { verifyEmailToken } from '../services/verificationService';
 
 export default function Login() {
   const { login } = useContext(AuthContext);
@@ -47,8 +47,8 @@ export default function Login() {
     }
 
     try {
-      const response = await axios.get(`http://localhost:5000/api/verification/verify-email?token=${verifyToken.trim()}`);
-      setVerifySuccess(response.data.message || 'Email verified successfully! You can now login.');
+      const response = await verifyEmailToken(verifyToken.trim());
+      setVerifySuccess(response.message || 'Email verified successfully! You can now login.');
       setShowVerifyToken(false);
       setVerifyToken('');
       setError(null);
@@ -71,8 +71,9 @@ export default function Login() {
           {verifySuccess && <div className="alert alert-success" style={{ marginBottom: '16px' }}>{verifySuccess}</div>}
 
           <div className="form-group">
-            <label>Enrollment Number or Email</label>
+            <label htmlFor="login-email">Enrollment Number or Email</label>
             <input
+              id="login-email"
               type="text"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -82,8 +83,9 @@ export default function Login() {
           </div>
 
           <div className="form-group">
-            <label>Password</label>
+            <label htmlFor="login-password">Password</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -112,7 +114,9 @@ export default function Login() {
             </p>
             <form onSubmit={handleVerifyToken}>
               <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label htmlFor="login-verify-token" className="small">Verification Token</label>
                 <input
+                  id="login-verify-token"
                   type="text"
                   value={verifyToken}
                   onChange={e => setVerifyToken(e.target.value)}
@@ -126,10 +130,13 @@ export default function Login() {
             </form>
           </div>
         )}
-
+        <div style={{ marginTop: '12px', textAlign: 'right' }}>
+          <Link to="/forgot-password" style={{ color: 'var(--primary)', textDecoration: 'none', fontSize: '0.9rem' }}>
+            Forgot password?
+          </Link>
+        </div>
         <div style={{ marginTop: '16px', textAlign: 'center' }}>
-          <span className="text-muted">Don't have an account? </span>
-          <Link to="/register" style={{ color: 'var(--primary)', textDecoration: 'none' }}>Sign up here</Link>
+          <span className="text-muted">Accounts are created by your administrator.</span>
         </div>
       </div>
     </div>

@@ -23,6 +23,7 @@ import { fetchUsers } from '../services/userService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { downloadCsv } from '../utils/csvExport';
 import { downloadTablePdf } from '../utils/pdfExport';
+import { getDisplayName, getDisplayNameSlug } from '../utils/userDisplay';
 
 const SUBJECT_OPTIONS = ['DBMS', 'OS', 'CN', 'DSA', 'Aptitude', 'Logical', 'Verbal'];
 const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0f766e'];
@@ -126,8 +127,9 @@ export default function AdminReports() {
     }
 
     if (reportType === 'student-subject') {
+      const studentNameSlug = getDisplayNameSlug(reportData.student);
       downloadCsv(
-        `${reportData.student.name.toLowerCase().replace(/\s+/g, '-')}-${reportData.subject.toLowerCase()}-history.csv`,
+        `${studentNameSlug}-${reportData.subject.toLowerCase()}-history.csv`,
         [
           { key: 'completedAt', label: 'Completed At' },
           { key: 'examTitle', label: 'Exam' },
@@ -146,8 +148,9 @@ export default function AdminReports() {
       return;
     }
 
+    const studentNameSlug = getDisplayNameSlug(reportData.student);
     downloadCsv(
-      `${reportData.student.name.toLowerCase().replace(/\s+/g, '-')}-overall-report.csv`,
+      `${studentNameSlug}-overall-report.csv`,
       [
         { key: 'subject', label: 'Subject' },
         { key: 'testsTaken', label: 'Tests Taken' },
@@ -195,9 +198,11 @@ export default function AdminReports() {
     }
 
     if (reportType === 'student-subject') {
+      const studentName = getDisplayName(reportData.student);
+      const studentNameSlug = getDisplayNameSlug(reportData.student);
       await downloadTablePdf({
-        filename: `${reportData.student.name.toLowerCase().replace(/\s+/g, '-')}-${reportData.subject.toLowerCase()}-history.pdf`,
-        title: `${reportData.student.name} - ${reportData.subject} History`,
+        filename: `${studentNameSlug}-${reportData.subject.toLowerCase()}-history.pdf`,
+        title: `${studentName} - ${reportData.subject} History`,
         subtitle: buildFilterSubtitle(filters),
         columns: [
           { key: 'completedAt', label: 'Completed At' },
@@ -217,9 +222,11 @@ export default function AdminReports() {
       return;
     }
 
+    const studentName = getDisplayName(reportData.student);
+    const studentNameSlug = getDisplayNameSlug(reportData.student);
     await downloadTablePdf({
-      filename: `${reportData.student.name.toLowerCase().replace(/\s+/g, '-')}-overall-report.pdf`,
-      title: `${reportData.student.name} - Overall Report`,
+      filename: `${studentNameSlug}-overall-report.pdf`,
+      title: `${studentName} - Overall Report`,
       subtitle: buildFilterSubtitle(filters),
       columns: [
         { key: 'subject', label: 'Subject' },
@@ -315,7 +322,7 @@ export default function AdminReports() {
                   {reportData.students.map(student => (
                     <tr key={student.userId}>
                       <td>
-                        <strong>{student.name}</strong>
+                        <strong>{getDisplayName(student)}</strong>
                         <div className="text-small">{student.email}</div>
                       </td>
                       <td>{student.testsTaken}</td>
@@ -341,7 +348,7 @@ export default function AdminReports() {
     return (
       <>
         <div className="card">
-          <h3>{reportData.student.name} • {reportData.subject}</h3>
+          <h3>{getDisplayName(reportData.student)} • {reportData.subject}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
             <MetricCard label="Tests Taken" value={reportData.overview.testsTaken} />
             <MetricCard label="Accuracy" value={`${reportData.overview.accuracy}%`} />
@@ -418,7 +425,7 @@ export default function AdminReports() {
     return (
       <>
         <div className="card">
-          <h3>{reportData.student.name} • All Subjects</h3>
+          <h3>{getDisplayName(reportData.student)} • All Subjects</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
             <MetricCard label="Total Tests" value={reportData.overview.totalTests} />
             <MetricCard label="Accuracy" value={`${reportData.overview.accuracy}%`} />
@@ -551,7 +558,7 @@ export default function AdminReports() {
               <label className="small">Student</label>
               <select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)}>
                 {users.map(user => (
-                  <option key={user._id} value={user._id}>{user.name} ({user.email})</option>
+                  <option key={user._id} value={user._id}>{getDisplayName(user)} ({user.email})</option>
                 ))}
               </select>
             </div>
@@ -584,7 +591,7 @@ export default function AdminReports() {
         </div>
         {selectedStudent && reportType !== 'subject-students' && (
           <p className="text-muted" style={{ marginBottom: 0 }}>
-            Current student: <strong>{selectedStudent.name}</strong>
+            Current student: <strong>{getDisplayName(selectedStudent)}</strong>
           </p>
         )}
       </div>

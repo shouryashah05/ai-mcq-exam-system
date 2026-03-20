@@ -16,7 +16,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="card">
-        <h3>Welcome, {user?.name || 'Admin'}</h3>
+        <h3>Welcome, {user?.firstName || user?.name || 'Admin'}</h3>
         <p className="small">Manage exam system from here.</p>
         <div style={{ marginTop: 12 }}>
           <button onClick={() => navigate('/admin/users')}>Manage Users</button>

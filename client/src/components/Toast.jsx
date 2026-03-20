@@ -22,8 +22,8 @@ export default function Toast() {
   return (
     <div style={containerStyle} aria-live="polite">
       {toasts.map(t => (
-        <div key={t.id} style={{ ...toastStyle, ...(t.type === 'warning' ? warningStyle : {}) }}>
-          <strong style={{display:'block'}}>{t.type === 'warning' ? 'Warning' : 'Info'}</strong>
+        <div key={t.id} style={{ ...toastStyle, ...(variantStyles[t.type] || infoStyle) }}>
+          <strong style={{display:'block'}}>{labels[t.type] || 'Info'}</strong>
           <div>{t.message}</div>
         </div>
       ))}
@@ -43,14 +43,41 @@ const containerStyle = {
 
 const toastStyle = {
   minWidth: 260,
-  background: '#111',
-  color: '#fff',
   padding: '12px 16px',
   borderRadius: 8,
   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
 };
 
+const infoStyle = {
+  background: '#111827',
+  color: '#fff'
+};
+
 const warningStyle = {
   background: '#ffb74d',
   color: '#111'
+};
+
+const successStyle = {
+  background: '#16a34a',
+  color: '#fff'
+};
+
+const errorStyle = {
+  background: '#dc2626',
+  color: '#fff'
+};
+
+const variantStyles = {
+  info: infoStyle,
+  warning: warningStyle,
+  success: successStyle,
+  error: errorStyle,
+};
+
+const labels = {
+  info: 'Info',
+  warning: 'Warning',
+  success: 'Success',
+  error: 'Error',
 };

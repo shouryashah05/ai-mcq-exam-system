@@ -12,7 +12,8 @@ export default function Profile() {
     const [error, setError] = useState(null);
 
     const [profileForm, setProfileForm] = useState({
-        name: '',
+        firstName: '',
+        lastName: '',
         email: ''
     });
 
@@ -31,7 +32,8 @@ export default function Profile() {
             const res = await getProfile();
             const user = res.user;
             setProfileForm({
-                name: user.name || '',
+                firstName: user.firstName || '',
+                lastName: user.lastName || '',
                 email: user.email || ''
             });
         } catch (err) {
@@ -100,19 +102,34 @@ export default function Profile() {
             <div className="card" style={{ marginBottom: 24 }}>
                 <h3 style={{ marginTop: 0 }}>Profile Information</h3>
                 <form onSubmit={handleUpdateProfile}>
-                    <div className="form-group">
-                        <label>Name</label>
-                        <input
-                            type="text"
-                            value={profileForm.name}
-                            disabled
-                            style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-                        />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div className="form-group">
+                            <label htmlFor="profile-first-name">First Name</label>
+                            <input
+                                id="profile-first-name"
+                                type="text"
+                                value={profileForm.firstName}
+                                onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label htmlFor="profile-last-name">Last Name</label>
+                            <input
+                                id="profile-last-name"
+                                type="text"
+                                value={profileForm.lastName}
+                                onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                                required
+                            />
+                        </div>
                     </div>
 
                     <div className="form-group">
-                        <label>Email</label>
+                        <label htmlFor="profile-email">Email</label>
                         <input
+                            id="profile-email"
                             type="email"
                             value={profileForm.email}
                             onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
@@ -122,8 +139,9 @@ export default function Profile() {
                     </div>
 
                     <div className="form-group">
-                        <label>Enrollment Number</label>
+                        <label htmlFor="profile-enrollment">Enrollment Number</label>
                         <input
+                            id="profile-enrollment"
                             type="text"
                             value={authUser?.enrollmentNo || ''}
                             disabled
@@ -132,8 +150,9 @@ export default function Profile() {
                     </div>
 
                     <div className="form-group">
-                        <label>Role</label>
+                        <label htmlFor="profile-role">Role</label>
                         <input
+                            id="profile-role"
                             type="text"
                             value={authUser?.role || ''}
                             disabled
@@ -152,8 +171,9 @@ export default function Profile() {
                 <h3 style={{ marginTop: 0 }}>Change Password</h3>
                 <form onSubmit={handleChangePassword}>
                     <div className="form-group">
-                        <label>Current Password</label>
+                        <label htmlFor="profile-current-password">Current Password</label>
                         <input
+                            id="profile-current-password"
                             type="password"
                             value={passwordForm.oldPassword}
                             onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
@@ -162,8 +182,9 @@ export default function Profile() {
                     </div>
 
                     <div className="form-group">
-                        <label>New Password</label>
+                        <label htmlFor="profile-new-password">New Password</label>
                         <input
+                            id="profile-new-password"
                             type="password"
                             value={passwordForm.newPassword}
                             onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
@@ -175,8 +196,9 @@ export default function Profile() {
                     </div>
 
                     <div className="form-group">
-                        <label>Confirm New Password</label>
+                        <label htmlFor="profile-confirm-password">Confirm New Password</label>
                         <input
+                            id="profile-confirm-password"
                             type="password"
                             value={passwordForm.confirmPassword}
                             onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}

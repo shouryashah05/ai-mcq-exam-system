@@ -1,6 +1,6 @@
 import React, { createContext, useEffect, useRef, useState } from 'react';
-import { login as loginApi, register as registerApi } from '../services/authService';
-import api from '../services/api';
+import { login as loginApi } from '../services/authService';
+import { requestNavigation, showToast } from '../utils/appEvents';
 
 export const AuthContext = createContext(null);
 
@@ -11,6 +11,17 @@ export const AuthProvider = ({ children }) => {
   });
 
   const [token, setToken] = useState(() => localStorage.getItem('token'));
+
+  const clearSession = () => {
+    setUser(null);
+    setToken(null);
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } catch (e) {
+      // ignore storage cleanup errors
+    }
+  };
 
   useEffect(() => {
     if (user) localStorage.setItem('user', JSON.stringify(user));
@@ -53,25 +64,23 @@ export const AuthProvider = ({ children }) => {
 
     if (msLeft <= 0) {
       // Token already expired
-      setUser(null);
-      setToken(null);
-      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'warning', message: 'Session expired. Please sign in again.' } }));
+      clearSession();
+      showToast('Session expired. Please sign in again.', { type: 'warning' });
+      requestNavigation('/login');
       return;
     }
 
     // Schedule logout a few seconds after expiry
     logoutTimerRef.current = setTimeout(() => {
-      setUser(null);
-      setToken(null);
-      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'warning', message: 'Session expired. Please sign in again.' } }));
-      window.location.href = '/login';
+      clearSession();
+      showToast('Session expired. Please sign in again.', { type: 'warning' });
+      requestNavigation('/login');
     }, msLeft + 1000);
 
     // Listen for global logout events (e.g., api interceptor)
-    const onGlobalLogout = () => {
-      setUser(null);
-      setToken(null);
-      window.location.href = '/login';
+    const onGlobalLogout = (event) => {
+      clearSession();
+      requestNavigation(event?.detail?.to || '/login', { replace: event?.detail?.replace ?? true, state: event?.detail?.state });
     };
     window.addEventListener('app:logout', onGlobalLogout);
 
@@ -88,31 +97,14 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const register = async (payload) => {
-    const data = await registerApi(payload);
-    // Only set user and token if token exists (verified users like admins)
-    // Unverified students won't get a token until they verify email
-    if (data.token) {
-      setUser(data.user);
-      setToken(data.token);
-    }
-    return data;
-  };
-
   const logout = () => {
-    setUser(null);
-    setToken(null);
-    try {
-      // Also clear local storage and notify other tabs
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.dispatchEvent(new CustomEvent('app:logout'));
-      window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'info', message: 'You have been logged out.' } }));
-    } catch (e) { }
+    clearSession();
+    showToast('You have been logged out.', { type: 'info' });
+    requestNavigation('/login');
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, setUser }}>
+    <AuthContext.Provider value={{ user, token, login, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

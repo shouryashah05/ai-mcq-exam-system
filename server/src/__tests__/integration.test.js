@@ -40,14 +40,10 @@ afterAll(async () => {
 });
 
 describe('API integration (auth, admin -> exam flow)', () => {
-  test('registers and logs in a student', async () => {
+  test('blocks public self-registration', async () => {
     const res = await request(app).post('/api/auth/register').send({ name: 'Test Student', email: 'student@example.com', password: 'password123' });
-    expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty('token');
-
-    const login = await request(app).post('/api/auth/login').send({ email: 'student@example.com', password: 'password123' });
-    expect(login.status).toBe(200);
-    expect(login.body.user.email).toBe('student@example.com');
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/self-signup is disabled/i);
   });
 
   test('admin creates question & exam; student can start, answer and submit', async () => {
@@ -94,10 +90,15 @@ describe('API integration (auth, admin -> exam flow)', () => {
     expect(exRes.status).toBe(201);
     const exam = exRes.body.exam;
 
-    // register student and login
-    const studRes = await request(app).post('/api/auth/register').send({ name: 'Stu', email: 'stu@test.com', password: 'pw12345' });
+    // admin creates student and student logs in
+    const studRes = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Stu', email: 'stu@test.com', password: 'pw12345', enrollmentNo: 'STUTEST001', role: 'student' });
     expect(studRes.status).toBe(201);
-    const studentToken = studRes.body.token;
+    const studentLogin = await request(app).post('/api/auth/login').send({ email: 'stu@test.com', password: 'pw12345' });
+    expect(studentLogin.status).toBe(200);
+    const studentToken = studentLogin.body.token;
 
     // start attempt
     const startRes = await request(app).post('/api/attempts/start').set('Authorization', `Bearer ${studentToken}`).send({ examId: exam._id });
@@ -112,5 +113,99 @@ describe('API integration (auth, admin -> exam flow)', () => {
     const subRes = await request(app).post(`/api/attempts/${attempt._id}/submit`).set('Authorization', `Bearer ${studentToken}`).send();
     expect(subRes.status).toBe(200);
     expect(subRes.body.result.score).toBeGreaterThanOrEqual(0);
+  });
+
+  test('admin can invite a user to set their password and the invited user can log in after setup', async () => {
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash('adminpass', salt);
+    await User.create({ name: 'Admin Two', firstName: 'Admin', lastName: 'Two', email: 'admin2@test.com', password: hashed, role: 'admin' });
+
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'admin2@test.com', password: 'adminpass' });
+    expect(adminLogin.status).toBe(200);
+
+    const inviteRes = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${adminLogin.body.token}`)
+      .send({ firstName: 'Invite', lastName: 'Student', email: 'invited@test.com', enrollmentNo: 'INVITE001', role: 'student', sendInvite: true });
+
+    expect(inviteRes.status).toBe(201);
+    expect(inviteRes.body.message).toMatch(/setup email sent/i);
+    expect(inviteRes.body.inviteToken).toBeTruthy();
+
+    const resetRes = await request(app)
+      .post('/api/verification/reset-password')
+      .send({ token: inviteRes.body.inviteToken, newPassword: 'InvitePass123!' });
+
+    expect(resetRes.status).toBe(200);
+
+    const invitedLogin = await request(app).post('/api/auth/login').send({ email: 'invited@test.com', password: 'InvitePass123!' });
+    expect(invitedLogin.status).toBe(200);
+    expect(invitedLogin.body.user.firstName).toBe('Invite');
+  });
+
+  test('admin can bulk create users with a temporary password and invite links', async () => {
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash('adminpass', salt);
+    await User.create({ name: 'Admin Bulk', firstName: 'Admin', lastName: 'Bulk', email: 'adminbulk@test.com', password: hashed, role: 'admin' });
+
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'adminbulk@test.com', password: 'adminpass' });
+    expect(adminLogin.status).toBe(200);
+
+    const bulkRes = await request(app)
+      .post('/api/users/bulk')
+      .set('Authorization', `Bearer ${adminLogin.body.token}`)
+      .send({
+        temporaryPassword: 'TempPass123!',
+        sendInvite: true,
+        users: [
+          { firstName: 'Bulk', lastName: 'One', email: 'bulk.one@test.com', enrollmentNo: 'BULK001', role: 'student' },
+          { firstName: 'Bulk', lastName: 'Two', email: 'bulk.two@test.com', enrollmentNo: 'BULK002', role: 'student' },
+        ],
+      });
+
+    expect(bulkRes.status).toBe(201);
+    expect(bulkRes.body.createdCount).toBe(2);
+    expect(bulkRes.body.failedCount).toBe(0);
+    expect(bulkRes.body.createdUsers[0].passwordLinkToken).toBeTruthy();
+
+    const tempLogin = await request(app).post('/api/auth/login').send({ email: 'bulk.one@test.com', password: 'TempPass123!' });
+    expect(tempLogin.status).toBe(200);
+
+    const resetRes = await request(app)
+      .post('/api/verification/reset-password')
+      .send({ token: bulkRes.body.createdUsers[0].passwordLinkToken, newPassword: 'BulkFresh123!' });
+    expect(resetRes.status).toBe(200);
+
+    const updatedLogin = await request(app).post('/api/auth/login').send({ email: 'bulk.one@test.com', password: 'BulkFresh123!' });
+    expect(updatedLogin.status).toBe(200);
+  });
+
+  test('bulk user import rejects files larger than 500 users', async () => {
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash('adminpass', salt);
+    await User.create({ name: 'Admin Limit', firstName: 'Admin', lastName: 'Limit', email: 'adminlimit@test.com', password: hashed, role: 'admin' });
+
+    const adminLogin = await request(app).post('/api/auth/login').send({ email: 'adminlimit@test.com', password: 'adminpass' });
+    expect(adminLogin.status).toBe(200);
+
+    const users = Array.from({ length: 501 }, (_, index) => ({
+      firstName: `User${index}`,
+      lastName: 'Bulk',
+      email: `bulk.limit.${index}@test.com`,
+      enrollmentNo: `LIMIT${String(index).padStart(3, '0')}`,
+      role: 'student',
+    }));
+
+    const bulkRes = await request(app)
+      .post('/api/users/bulk')
+      .set('Authorization', `Bearer ${adminLogin.body.token}`)
+      .send({
+        temporaryPassword: 'TempPass123!',
+        sendInvite: false,
+        users,
+      });
+
+    expect(bulkRes.status).toBe(400);
+    expect(bulkRes.body.message).toMatch(/between 1 and 500 records|up to 500 users/i);
   });
 });

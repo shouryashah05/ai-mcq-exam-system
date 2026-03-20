@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createQuestion, fetchQuestions, updateQuestion, deleteQuestion, bulkCreateQuestions, uploadQuestionImage, deleteQuestionImage } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SymbolPicker from '../components/SymbolPicker';
+import { showToast } from '../utils/appEvents';
 
 const MIN_OPTIONS = 2;
 
@@ -233,7 +234,7 @@ export default function AdminQuestions() {
         await deleteQuestion(id);
         await load();
       } catch (err) {
-        alert(err?.response?.data?.message || err.message);
+        showToast(err?.response?.data?.message || err.message, { type: 'error' });
       }
     }
   };

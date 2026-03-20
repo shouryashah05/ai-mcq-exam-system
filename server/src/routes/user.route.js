@@ -1,12 +1,17 @@
 const express = require('express');
-const { getUsers, updateUserRole, toggleUserStatus } = require('../controllers/user.controller');
+const { createUser, bulkCreateUsers, getUsers, updateUserRole, toggleUserStatus, sendUserPasswordLink } = require('../controllers/user.controller');
 const { verifyToken, authorizeRoles } = require('../middleware/auth');
+const { registerValidation } = require('../middleware/validators/auth.validator');
+const { bulkCreateUsersValidation } = require('../middleware/validators/user.validator');
 
 const router = express.Router();
 
 // Admin-only user management
 router.use(verifyToken, authorizeRoles('admin'));
+router.post('/', registerValidation, createUser);
+router.post('/bulk', bulkCreateUsersValidation, bulkCreateUsers);
 router.get('/', getUsers);
+router.post('/:id/send-password-link', sendUserPasswordLink);
 router.put('/:id/role', updateUserRole);
 router.put('/:id/status', toggleUserStatus);
 

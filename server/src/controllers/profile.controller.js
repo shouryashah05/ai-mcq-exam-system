@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
+const { serializeUser } = require('../utils/userIdentity');
 
 /**
  * Get current user profile
@@ -11,14 +12,14 @@ const getProfile = async (req, res, next) => {
             res.status(404);
             throw new Error('User not found');
         }
-        res.json({ user });
+        res.json({ user: serializeUser(user) });
     } catch (err) {
         next(err);
     }
 };
 
 /**
- * Update user profile (name, email)
+ * Update user profile (first name, last name, email)
  */
 const updateProfile = async (req, res, next) => {
     try {
@@ -32,24 +33,25 @@ const updateProfile = async (req, res, next) => {
 
         // Check if email is being changed and if it's already taken
         if (email && email !== user.email) {
-            const existingUser = await User.findOne({ email });
+            const normalizedEmail = email.trim().toLowerCase();
+            const existingUser = await User.findOne({ email: normalizedEmail });
             if (existingUser) {
                 res.status(409);
                 throw new Error('Email already in use');
             }
-            user.email = email;
+            user.email = normalizedEmail;
             // If email changes, require re-verification
             user.isVerified = false;
         }
 
-        if (firstName) user.firstName = firstName;
-        if (lastName) user.lastName = lastName;
+        if (typeof firstName === 'string') user.firstName = firstName.trim();
+        if (typeof lastName === 'string') user.lastName = lastName.trim();
 
         await user.save();
 
         const updatedUser = await User.findById(user._id).select('-password');
         res.json({
-            user: updatedUser,
+            user: serializeUser(updatedUser),
             message: email && email !== req.user.email
                 ? 'Profile updated. Please verify your new email address.'
                 : 'Profile updated successfully'

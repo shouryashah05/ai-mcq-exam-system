@@ -18,9 +18,33 @@ const validate = (req, res, next) => {
  */
 const registerValidation = [
     body('name')
+        .optional({ values: 'falsy' })
         .trim()
-        .notEmpty().withMessage('Name is required')
         .isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
+
+    body('firstName')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters'),
+
+    body('lastName')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters'),
+
+    body().custom((_, { req }) => {
+        const hasFullName = typeof req.body.name === 'string' && req.body.name.trim().length >= 2;
+        const hasSplitName = typeof req.body.firstName === 'string'
+            && req.body.firstName.trim().length >= 2
+            && typeof req.body.lastName === 'string'
+            && req.body.lastName.trim().length >= 2;
+
+        if (!hasFullName && !hasSplitName) {
+            throw new Error('First name and last name are required');
+        }
+
+        return true;
+    }),
 
     body('email')
         .trim()
@@ -28,9 +52,24 @@ const registerValidation = [
         .isEmail().withMessage('Must be a valid email address')
         .normalizeEmail(),
 
+    body('sendInvite')
+        .optional()
+        .isBoolean().withMessage('Send invite must be true or false'),
+
     body('password')
-        .notEmpty().withMessage('Password is required')
+        .optional({ values: 'falsy' })
         .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+
+    body().custom((_, { req }) => {
+        const sendInvite = req.body.sendInvite === true || req.body.sendInvite === 'true';
+        const hasPassword = typeof req.body.password === 'string' && req.body.password.length >= 6;
+
+        if (!sendInvite && !hasPassword) {
+            throw new Error('Password is required unless a setup email invite is sent');
+        }
+
+        return true;
+    }),
 
     body('role')
         .optional()

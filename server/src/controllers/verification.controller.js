@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
-const { generateToken, sendVerificationEmail, sendPasswordResetEmail } = require('../services/email.service');
+const { generateToken, sendVerificationEmail, sendPasswordResetEmail, sendAccountSetupEmail } = require('../services/email.service');
+const { buildFullName } = require('../utils/userIdentity');
 
 /**
  * Verify user email with token
@@ -94,8 +95,20 @@ const requestPasswordReset = async (req, res, next) => {
         user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
         await user.save();
 
-        // Send password reset email
-        await sendPasswordResetEmail(user.email, token, user.name);
+        const displayName = buildFullName(user.firstName, user.lastName) || user.name;
+
+        if (process.env.NODE_ENV === 'test') {
+            return res.json({
+                message: 'If the email exists, a password reset link has been sent',
+                resetToken: token,
+            });
+        }
+
+        if (user.isVerified) {
+            await sendPasswordResetEmail(user.email, token, displayName);
+        } else {
+            await sendAccountSetupEmail(user.email, token, displayName);
+        }
 
         res.json({ message: 'If the email exists, a password reset link has been sent' });
     } catch (err) {
@@ -133,12 +146,19 @@ const resetPassword = async (req, res, next) => {
         // Hash new password
         const bcrypt = require('bcryptjs');
         const salt = await bcrypt.genSalt(10);
+        const wasVerified = user.isVerified;
         user.password = await bcrypt.hash(newPassword, salt);
         user.resetPasswordToken = null;
         user.resetPasswordExpires = null;
+        user.isVerified = true;
+        user.verificationToken = null;
         await user.save();
 
-        res.json({ message: 'Password reset successfully. You can now login with your new password.' });
+        res.json({
+            message: wasVerified
+                ? 'Password reset successfully. You can now login with your new password.'
+                : 'Account setup complete. You can now login with your new password.',
+        });
     } catch (err) {
         next(err);
     }

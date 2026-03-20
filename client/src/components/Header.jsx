@@ -9,7 +9,6 @@ export default function Header() {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
   };
 
   if (!user) return null;

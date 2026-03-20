@@ -1,5 +1,5 @@
-import React, { Suspense, lazy } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Header from './components/Header';
 import Toast from './components/Toast';
@@ -9,6 +9,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 const StudentAnalytics = lazy(() => import('./pages/StudentAnalytics'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
@@ -32,6 +34,25 @@ function PageFallback() {
   );
 }
 
+function AppNavigationBridge() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleNavigate = (event) => {
+      const to = event?.detail?.to || '/login';
+      navigate(to, {
+        replace: event?.detail?.replace ?? true,
+        state: event?.detail?.state,
+      });
+    };
+
+    window.addEventListener('app:navigate', handleNavigate);
+    return () => window.removeEventListener('app:navigate', handleNavigate);
+  }, [navigate]);
+
+  return null;
+}
+
 function renderRoute(element) {
   return <Suspense fallback={<PageFallback />}>{element}</Suspense>;
 }
@@ -40,6 +61,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <AppNavigationBridge />
         <Header />
         <Toast />
         <main>
@@ -48,6 +70,8 @@ export default function App() {
             <Route path="/login" element={renderRoute(<Login />)} />
             <Route path="/register" element={renderRoute(<Register />)} />
             <Route path="/verify-email" element={renderRoute(<VerifyEmail />)} />
+            <Route path="/forgot-password" element={renderRoute(<ForgotPassword />)} />
+            <Route path="/reset-password" element={renderRoute(<ResetPassword />)} />
 
             <Route path="/dashboard" element={renderRoute(<ProtectedRoute><StudentDashboard /></ProtectedRoute>)} />
             <Route path="/exams" element={renderRoute(<ProtectedRoute><ExamsPage /></ProtectedRoute>)} />

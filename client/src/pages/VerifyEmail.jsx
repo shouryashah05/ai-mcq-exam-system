@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { verifyEmailToken } from '../services/verificationService';
 
 export default function VerifyEmail() {
     const [searchParams] = useSearchParams();
@@ -19,9 +19,9 @@ export default function VerifyEmail() {
             }
 
             try {
-                const response = await axios.get(`http://localhost:5000/api/verification/verify-email?token=${token}`);
+                const response = await verifyEmailToken(token);
                 setStatus('success');
-                setMessage(response.data.message || 'Email verified successfully!');
+                setMessage(response.message || 'Email verified successfully!');
 
                 // Redirect to login after 3 seconds
                 setTimeout(() => {
@@ -74,9 +74,9 @@ export default function VerifyEmail() {
 
                 {status === 'error' && (
                     <div style={{ marginTop: '24px' }}>
-                        <a href="/login" className="button-lg" style={{ textDecoration: 'none', display: 'inline-block' }}>
+                        <Link to="/login" className="button-lg" style={{ textDecoration: 'none', display: 'inline-block' }}>
                             Go to Login
-                        </a>
+                        </Link>
                     </div>
                 )}
             </div>

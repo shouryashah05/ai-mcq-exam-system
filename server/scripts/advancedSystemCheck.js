@@ -1,5 +1,4 @@
 const fetch = global.fetch;
-const path = require('path');
 
 const BASE_URL = 'http://localhost:5000/api';
 const AI_URL = 'http://localhost:5001';
@@ -20,8 +19,6 @@ async function req(method, url, token, body) {
     return { status: res.status, data };
 }
 
-const { execSync } = require('child_process');
-
 async function runAdvancedCheck() {
     console.log('🚀 Starting ADVANCED System Verification...\n');
 
@@ -34,39 +31,37 @@ async function runAdvancedCheck() {
     };
 
     try {
-        // 1. Register
-        console.log(`1️⃣ Registering User: ${newUser.email}...`);
-        const regRes = await req('POST', '/auth/register', null, newUser);
-        if (regRes.status !== 201) throw new Error(`Registration Failed: ${JSON.stringify(regRes.data)}`);
-        console.log('✅ Registration Successful');
+        // 1. Admin login
+        console.log('1️⃣ Admin Login...');
+        const adminLogin = await req('POST', '/auth/login', null, {
+            email: process.env.ADMIN_EMAIL || 'admin@example.com',
+            password: process.env.ADMIN_PASSWORD || 'ChangeMe123!'
+        });
+        if (adminLogin.status !== 200) throw new Error(`Admin Login Failed: ${JSON.stringify(adminLogin.data)}`);
+        const adminToken = adminLogin.data.token;
+        console.log('✅ Admin Logged In');
 
-        // Wait for DB consistency
-        await new Promise(r => setTimeout(r, 1000));
+        // 2. Admin creates user
+        console.log(`2️⃣ Admin Creating User: ${newUser.email}...`);
+        const regRes = await req('POST', '/users', adminToken, { ...newUser, role: 'student' });
+        if (regRes.status !== 201) throw new Error(`Admin User Creation Failed: ${JSON.stringify(regRes.data)}`);
+        console.log('✅ User Created By Admin');
 
-        // 1.5 Verify User (Simulate Email Click)
-        console.log('1️⃣.5️⃣ Verifying Email (Backend Bypass)...');
-        try {
-            // Script is in parent folder relative to this script
-            execSync(`node "${path.join(__dirname, '../verify-user-cli.js')}" "${newUser.email}"`, { stdio: 'inherit' });
-        } catch (e) {
-            throw new Error('Verification Script Failed');
-        }
-
-        // 2. Login
-        console.log('2️⃣ Logging in...');
+        // 3. Login
+        console.log('3️⃣ Logging in...');
         const loginRes = await req('POST', '/auth/login', null, { email: newUser.email, password: newUser.password });
         if (loginRes.status !== 200) throw new Error(`Login Failed: ${JSON.stringify(loginRes.data)}`);
         const token = loginRes.data.token;
         const userId = loginRes.data.user._id;
         console.log(`✅ Logged In. Token received for UserID: ${userId}`);
 
-        // 3. Check Initial Dashboard (Should be empty/default)
-        console.log('3️⃣ Checking Initial Analytics...');
+        // 4. Check Initial Dashboard (Should be empty/default)
+        console.log('4️⃣ Checking Initial Analytics...');
         const readyRes = await req('GET', `/analytics/student/${userId}/readiness`, token);
         console.log(`   Readiness Level: ${readyRes.data.data.level} (Expected: Beginner)`);
 
-        // 4. Start Adaptive Test
-        console.log('4️⃣ Starting Adaptive Test...');
+        // 5. Start Adaptive Test
+        console.log('5️⃣ Starting Adaptive Test...');
         // We need a subject. Let's try 'DBMS' or 'Aptitude'.
         // We need a subject. Let's try 'Mixed' to verify new logic.
         const startRes = await req('POST', '/adaptive/start', token, { subject: 'Mixed' });
@@ -100,8 +95,8 @@ async function runAdvancedCheck() {
             }
         }
 
-        // 5. Simulate Exam Loop (5 questions)
-        console.log('5️⃣ Simulating Exam Interaction...');
+        // 6. Simulate Exam Loop (5 questions)
+        console.log('6️⃣ Simulating Exam Interaction...');
         for (let i = 0; i < 5; i++) {
             if (!currentQuestion) break;
 
@@ -138,13 +133,13 @@ async function runAdvancedCheck() {
             }
         }
 
-        // 6. End Test
-        console.log('6️⃣ Ending Test...');
+        // 7. End Test
+        console.log('7️⃣ Ending Test...');
         const endRes = await req('POST', '/adaptive/end', token, { attemptId });
         console.log(`✅ Test Ended. Score: ${endRes.data.data?.finalScore}`);
 
-        // 7. Verify Analytics Update
-        console.log('7️⃣ Verifying Analytics Update...');
+        // 8. Verify Analytics Update
+        console.log('8️⃣ Verifying Analytics Update...');
         // Wait a moment for async updates if any (though usually awaited)
         const statsRes = await req('GET', `/analytics/student/${userId}`, token);
         const attempts = statsRes.data.data.reduce((acc, curr) => acc + curr.totalAttempts, 0);
@@ -152,8 +147,8 @@ async function runAdvancedCheck() {
         if (attempts === 0) console.warn('⚠️ Analytics did not update!');
         else console.log('✅ Analytics Updated');
 
-        // 8. Verify AI Service
-        console.log('8️⃣ Checking AI Insights...');
+        // 9. Verify AI Service
+        console.log('9️⃣ Checking AI Insights...');
         const aiRes = await req('GET', `/analytics/student/${userId}/ai-insights`, token);
         if (aiRes.status === 200) {
             console.log('✅ AI Service Responded');

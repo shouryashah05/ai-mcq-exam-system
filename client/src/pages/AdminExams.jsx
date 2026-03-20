@@ -3,6 +3,7 @@ import { fetchExams, createExam, updateExam, deleteExam } from '../services/exam
 import { createQuestion, fetchQuestions, uploadQuestionImage, deleteQuestionImage } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SymbolPicker from '../components/SymbolPicker';
+import { showToast } from '../utils/appEvents';
 
 const FILTER_ALL = 'all';
 const MIN_OPTIONS = 2;
@@ -659,7 +660,7 @@ export default function AdminExams() {
       await deleteExam(id);
       await loadData();
     } catch (err) {
-      alert(err?.response?.data?.message || err.message);
+      showToast(err?.response?.data?.message || err.message, { type: 'error' });
     }
   };
 

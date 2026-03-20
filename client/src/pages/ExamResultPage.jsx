@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ExamResult from './ExamResult';
 import { getAttempt } from '../services/examAttemptService';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { showToast } from '../utils/appEvents';
 
 export default function ExamResultPage() {
   const { attemptId } = useParams();
@@ -18,14 +19,14 @@ export default function ExamResultPage() {
         setAttempt(res.attempt);
         setEvaluated(res.evaluated || []);
       } catch (err) {
-        alert(err?.response?.data?.message || err.message);
+        showToast(err?.response?.data?.message || err.message, { type: 'error' });
         navigate('/dashboard');
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [attemptId]);
+  }, [attemptId, navigate]);
 
   if (loading) return <LoadingSpinner fullScreen />;
   if (!attempt) return null;
