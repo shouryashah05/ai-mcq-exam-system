@@ -77,6 +77,7 @@ exports.generateNextTest = async (userId, subject = 'Aptitude') => {
     // 2. Create the Exam Object
     const examData = {
         title: `Adaptive Test - ${new Date().toLocaleDateString()}`,
+        examType: 'adaptive',
         subject: subject, // Store the selected subject (or Mixed)
         description: `Personalized test focusing on: ${weakTopics.slice(0, 3).join(', ') || 'General Practice'}`,
         duration: 20, // 20 mins for 10 questions

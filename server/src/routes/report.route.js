@@ -1,5 +1,6 @@
 const express = require('express');
 const {
+	getReportStudents,
 	getStudentPerformance,
 	getExamStatistics,
 	getSubjectStudentsReport,
@@ -10,7 +11,8 @@ const { verifyToken, authorizeRoles } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.use(verifyToken, authorizeRoles('admin'));
+router.use(verifyToken, authorizeRoles('admin', 'teacher'));
+router.get('/students', getReportStudents);
 router.get('/student-performance', getStudentPerformance);
 router.get('/exam-statistics', getExamStatistics);
 router.get('/subject-students', getSubjectStudentsReport);

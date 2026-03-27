@@ -20,7 +20,7 @@ export default function AdaptiveTest() {
 
     const [step, setStep] = useState('setup');
     const [subject, setSubject] = useState('');
-    const [testTitle, setTestTitle] = useState('Adaptive Assessment');
+    const [testTitle, setTestTitle] = useState('Adaptive Practice');
     const [attemptId, setAttemptId] = useState(null);
     const [allQuestions, setAllQuestions] = useState([]);
     const [questionStates, setQuestionStates] = useState([]);
@@ -96,14 +96,14 @@ export default function AdaptiveTest() {
         try {
             const response = await startAdaptiveTest(subject);
             if (!response.success || !response.data?.question) {
-                throw new Error(response.message || 'Failed to start adaptive assessment.');
+                throw new Error(response.message || 'Failed to start adaptive practice.');
             }
 
             const startedAt = response.data.startedAt ? new Date(response.data.startedAt).getTime() : Date.now();
             const duration = Number(response.data.duration) || DURATION_FALLBACK_MINUTES;
 
             setAttemptId(response.data.attemptId);
-            setTestTitle(response.data.title || `${subject} Adaptive Assessment`);
+            setTestTitle(response.data.title || `${subject} Adaptive Practice`);
             setAllQuestions([response.data.question]);
             setQuestionStates([{ selectedOption: null, committed: false }]);
             setCurrentQuestionIndex(0);
@@ -265,7 +265,7 @@ export default function AdaptiveTest() {
 
             const response = await endAdaptiveTest(attemptId);
             if (!response.success) {
-                throw new Error(response.message || `Failed to ${mode === 'end' ? 'end' : 'submit'} adaptive assessment.`);
+                throw new Error(response.message || `Failed to ${mode === 'end' ? 'end' : 'submit'} adaptive practice.`);
             }
 
             setFinalScore(response.data?.finalScore || 0);
@@ -283,10 +283,10 @@ export default function AdaptiveTest() {
         return (
             <div className="container flex-center" style={{ minHeight: '80vh' }}>
                 <div className="card" style={{ maxWidth: '520px', width: '100%', marginBottom: 0 }}>
-                    <div className="card-header" style={{ textAlign: 'center' }}>Adaptive Assessment</div>
+                    <div className="card-header" style={{ textAlign: 'center' }}>Adaptive Practice</div>
                     <div className="card-body">
                         <p className="text-muted" style={{ marginTop: 0, marginBottom: 20, textAlign: 'center' }}>
-                            Start a subject-wise adaptive test with the same exam flow as standard admin-created exams.
+                            Start a personalized practice session that adjusts by subject and performance. Adaptive practice is separate from assigned exams.
                         </p>
 
                         {error && <div className="alert alert-danger" style={{ marginBottom: 16 }}>{error}</div>}
@@ -309,6 +309,9 @@ export default function AdaptiveTest() {
                         <button className="button button-lg" onClick={handleStart} disabled={!subject || loading} style={{ width: '100%' }}>
                             {loading ? 'Starting...' : 'Start Adaptive Test'}
                         </button>
+                        <button className="button-secondary" onClick={() => navigate('/history')} style={{ width: '100%', marginTop: 12 }}>
+                            View Test History
+                        </button>
                     </div>
                 </div>
             </div>
@@ -319,13 +322,14 @@ export default function AdaptiveTest() {
         return (
             <div className="container flex-center" style={{ minHeight: '80vh', flexDirection: 'column', textAlign: 'center' }}>
                 <div className="card" style={{ maxWidth: '560px', width: '100%', marginBottom: 0 }}>
-                    <div className="card-header">Adaptive Assessment Complete</div>
+                                        <div className="card-header">Adaptive Practice Complete</div>
                     <div className="card-body">
                         <h1 style={{ margin: '0 0 8px 0' }}>{finalScore}</h1>
                         <p className="text-muted" style={{ margin: '0 0 24px 0' }}>Final score</p>
 
                         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
                               <button className="button" onClick={() => navigate(`/analysis/${attemptId}`)}>View Result</button>
+                                                        <button className="button-secondary" onClick={() => navigate('/history')}>View Test History</button>
                             <button className="button-secondary" onClick={() => {
                                 setStep('setup');
                                 setSubject('');
@@ -335,7 +339,7 @@ export default function AdaptiveTest() {
                                 setCurrentQuestionIndex(0);
                                 setMarkedForReview(new Set());
                                 setError(null);
-                            }}>Take Another Test</button>
+                            }}>Start Another Practice Test</button>
                         </div>
                     </div>
                 </div>
@@ -420,9 +424,9 @@ export default function AdaptiveTest() {
                             </button>
                             <button disabled={currentQuestionIndex === 0 || loading} className="button-secondary" onClick={handlePreviousQuestion}>← Previous Question</button>
                             <button disabled={loading || ending} className="button" onClick={handleNextQuestion}>{loading ? 'Loading...' : 'Next Question →'}</button>
-                            <button onClick={() => openSubmitModal('end')} className="button-warning" style={{ marginLeft: 'auto' }} disabled={ending}>End Exam</button>
+                            <button onClick={() => openSubmitModal('end')} className="button-warning" style={{ marginLeft: 'auto' }} disabled={ending}>End Practice</button>
                             <button onClick={() => openSubmitModal('submit')} disabled={ending} className="button-success">
-                                {ending ? 'Submitting...' : '✓ Submit Exam'}
+                                {ending ? 'Submitting...' : '✓ Submit Practice'}
                             </button>
                         </div>
                     </div>
@@ -529,19 +533,19 @@ export default function AdaptiveTest() {
                         }}
                         onClick={(event) => event.stopPropagation()}
                     >
-                        <h3 style={{ marginTop: 0, marginBottom: '16px' }}>{modalMode === 'end' ? 'End Adaptive Test' : 'Submit Adaptive Test'}</h3>
+                        <h3 style={{ marginTop: 0, marginBottom: '16px' }}>{modalMode === 'end' ? 'End Adaptive Practice' : 'Submit Adaptive Practice'}</h3>
                         <p style={{ marginBottom: '8px' }}>
                             You have <strong>{remainingCount}</strong> unanswered question(s).
                         </p>
                         <p style={{ marginBottom: '24px', color: 'var(--text-muted)' }}>
                             {modalMode === 'end'
                                 ? 'The current adaptive attempt will be closed immediately.'
-                                : 'Your adaptive test will be submitted and no further changes will be possible.'}
+                                : 'Your adaptive practice session will be submitted and no further changes will be possible.'}
                         </p>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                             <button onClick={closeSubmitModal} className="button-secondary">Cancel</button>
                             <button onClick={() => finalizeAdaptiveTest(modalMode)} disabled={ending} className={modalMode === 'end' ? 'button-warning' : 'button-success'}>
-                                {ending ? 'Processing...' : modalMode === 'end' ? 'End Test' : 'Submit Test'}
+                                {ending ? 'Processing...' : modalMode === 'end' ? 'End Practice' : 'Submit Practice'}
                             </button>
                         </div>
                     </div>

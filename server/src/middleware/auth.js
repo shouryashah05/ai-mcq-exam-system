@@ -1,9 +1,15 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 
-const verifyToken = async (req, res, next) => {
+const resolveToken = (req) => {
   const authHeader = req.headers.authorization || req.headers.Authorization;
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const cookieToken = req.cookies?.auth_token || null;
+  return bearerToken || cookieToken;
+};
+
+const verifyToken = async (req, res, next) => {
+  const token = resolveToken(req);
   if (!token) {
     res.status(401);
     return next(new Error('No token provided'));
@@ -27,6 +33,25 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+const optionalVerifyToken = async (req, res, next) => {
+  const token = resolveToken(req);
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select('-password');
+    if (user && user.isActive !== false) {
+      req.user = user;
+    }
+  } catch (err) {
+    // Ignore invalid optional auth and continue as anonymous.
+  }
+
+  next();
+};
+
 const authorizeRoles = (...allowedRoles) => (req, res, next) => {
   if (!req.user) {
     res.status(401);
@@ -39,4 +64,4 @@ const authorizeRoles = (...allowedRoles) => (req, res, next) => {
   next();
 };
 
-module.exports = { verifyToken, authorizeRoles };
+module.exports = { verifyToken, optionalVerifyToken, authorizeRoles };

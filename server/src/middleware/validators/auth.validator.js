@@ -1,4 +1,5 @@
 const { body, validationResult } = require('express-validator');
+const { SUBJECT_OPTIONS } = require('../../utils/subjects');
 
 /**
  * Middleware to check validation results
@@ -73,13 +74,90 @@ const registerValidation = [
 
     body('role')
         .optional()
-        .isIn(['student', 'admin']).withMessage('Role must be either student or admin'),
+        .isIn(['student', 'teacher', 'admin']).withMessage('Role must be student, teacher, or admin'),
+
+    body('employeeId')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 2, max: 50 }).withMessage('Employee ID must be between 2 and 50 characters')
+        .matches(/^[A-Z0-9-]+$/i).withMessage('Employee ID must contain only letters, numbers, and hyphens'),
+
+    body('adminId')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 3, max: 50 }).withMessage('Admin ID must be between 3 and 50 characters')
+        .matches(/^[A-Z0-9-]+$/i).withMessage('Admin ID must contain only letters, numbers, and hyphens'),
+
+    body('department')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 2, max: 100 }).withMessage('Department must be between 2 and 100 characters'),
+
+    body('subjects')
+        .optional()
+        .isArray().withMessage('Subjects must be an array'),
+
+    body('subjects.*')
+        .optional()
+        .isIn(SUBJECT_OPTIONS).withMessage('Each subject must be valid'),
+
+    body(['batch', 'class'])
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 1, max: 100 }).withMessage('Class must be between 1 and 100 characters'),
+
+    body('assignedBatches')
+        .optional()
+        .isArray().withMessage('Assigned classes must be an array'),
+
+    body('assignedBatches.*')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 1, max: 100 }).withMessage('Each assigned class must be between 1 and 100 characters'),
+
+    body('assignedLabBatches')
+        .optional()
+        .isArray().withMessage('Assigned lab batches must be an array'),
+
+    body('assignedLabBatches.*.className')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 1, max: 100 }).withMessage('Each assigned lab batch class must be between 1 and 100 characters'),
+
+    body('assignedLabBatches.*.labBatchName')
+        .optional({ values: 'falsy' })
+        .trim()
+        .isLength({ min: 1, max: 100 }).withMessage('Each assigned lab batch name must be between 1 and 100 characters'),
 
     body('enrollmentNo')
-        .optional()
+        .optional({ values: 'falsy' })
         .trim()
         .isLength({ min: 3, max: 50 }).withMessage('Enrollment number must be between 3 and 50 characters')
         .matches(/^[A-Z0-9]+$/i).withMessage('Enrollment number must contain only letters and numbers'),
+
+    body().custom((_, { req }) => {
+        if (req.body.role !== 'teacher') {
+            return true;
+        }
+
+        if (!req.body.employeeId || !String(req.body.employeeId).trim()) {
+            throw new Error('Teacher accounts must include an employee ID');
+        }
+
+        return true;
+    }),
+
+    body().custom((_, { req }) => {
+        if (req.body.role !== 'admin') {
+            return true;
+        }
+
+        if (!req.body.adminId || !String(req.body.adminId).trim()) {
+            throw new Error('Admin accounts must include an admin ID');
+        }
+
+        return true;
+    }),
 
     validate
 ];
@@ -90,7 +168,7 @@ const registerValidation = [
 const loginValidation = [
     body('email')
         .trim()
-        .notEmpty().withMessage('Enrollment number or email is required'),
+        .notEmpty().withMessage('Email, enrollment number, employee ID, or admin ID is required'),
 
     body('password')
         .notEmpty().withMessage('Password is required')

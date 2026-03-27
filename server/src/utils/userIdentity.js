@@ -3,6 +3,29 @@ const normalizeWhitespace = (value) => {
   return value.trim().replace(/\s+/g, ' ');
 };
 
+const buildEnrollmentNo = () => {
+  const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `AUTO${Date.now().toString(36).toUpperCase().slice(-5)}${rand}`.toUpperCase();
+};
+
+const buildAdminId = () => {
+  const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `ADM-${Date.now().toString(36).toUpperCase().slice(-4)}${rand}`;
+};
+
+const buildEmployeeId = () => {
+  const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `EMP-${Date.now().toString(36).toUpperCase().slice(-4)}${rand}`;
+};
+
+const normalizeRoleIdentifier = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().toUpperCase();
+};
+
 const splitName = (fullName = '') => {
   const normalizedName = normalizeWhitespace(fullName);
   if (!normalizedName) {
@@ -51,6 +74,14 @@ const serializeUser = (user) => {
 
   const source = typeof user.toObject === 'function' ? user.toObject() : user;
   const identity = normalizeUserIdentity(source);
+  const assignedLabBatches = Array.isArray(source.assignedLabBatches)
+    ? source.assignedLabBatches
+      .map((entry) => ({
+        className: normalizeWhitespace(entry?.className),
+        labBatchName: normalizeWhitespace(entry?.labBatchName),
+      }))
+      .filter((entry) => entry.className && entry.labBatchName)
+    : [];
 
   return {
     _id: source._id,
@@ -59,6 +90,16 @@ const serializeUser = (user) => {
     lastName: identity.lastName,
     email: source.email,
     role: source.role,
+    adminId: source.adminId || '',
+    employeeId: source.employeeId,
+    department: source.department,
+    subjects: Array.isArray(source.subjects) ? source.subjects : [],
+    batch: source.batch || '',
+    class: source.batch || '',
+    labBatch: source.labBatch || '',
+    assignedBatches: Array.isArray(source.assignedBatches) ? source.assignedBatches : [],
+    assignedClasses: Array.isArray(source.assignedBatches) ? source.assignedBatches : [],
+    assignedLabBatches,
     enrollmentNo: source.enrollmentNo,
     isVerified: source.isVerified,
     isActive: source.isActive,
@@ -67,8 +108,12 @@ const serializeUser = (user) => {
 };
 
 module.exports = {
+  buildAdminId,
+  buildEmployeeId,
+  buildEnrollmentNo,
   buildFullName,
   normalizeUserIdentity,
+  normalizeRoleIdentifier,
   serializeUser,
   splitName,
 };

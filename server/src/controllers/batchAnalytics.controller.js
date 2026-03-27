@@ -1,20 +1,58 @@
 const User = require('../models/user.model');
 const PerformanceAnalytics = require('../models/performanceAnalytics.model');
 const ExamAttempt = require('../models/examAttempt.model');
+const { getManagedStudentFilter, isTeacher } = require('../utils/permissions');
+
+const getScopedStudents = async (user) => {
+    const studentFilter = getManagedStudentFilter(user);
+    if (isTeacher(user) && !studentFilter) {
+        return [];
+    }
+
+    return User.find(studentFilter).select('_id batch');
+};
+
+const buildAnalyticsMatch = (studentIds, req) => {
+    if (!studentIds.length) {
+        return null;
+    }
+
+    return {
+        userId: { $in: studentIds },
+        ...(req.query.subject ? { subject: req.query.subject } : {}),
+    };
+};
 
 // Get high-level batch overview
 exports.getBatchOverview = async (req, res) => {
     try {
-        const totalStudents = await User.countDocuments({ role: { $ne: 'admin' } });
+        const scopedStudents = await getScopedStudents(req.user);
+        const studentIds = scopedStudents.map((student) => student._id);
+        const totalStudents = scopedStudents.length;
+
+        if (!studentIds.length) {
+            return res.json({
+                success: true,
+                data: {
+                    totalStudents: 0,
+                    activeStudents: 0,
+                    totalExams: 0,
+                    batchAverage: 0
+                }
+            });
+        }
 
         // Active students (those with at least one analytics entry)
-        const activeStudents = (await PerformanceAnalytics.distinct('userId')).length;
+        const activeStudents = (await PerformanceAnalytics.distinct('userId', { userId: { $in: studentIds } })).length;
 
         // Total exams conducted
-        const totalExams = await ExamAttempt.countDocuments({ status: 'completed' });
+        const totalExams = await ExamAttempt.countDocuments({ status: 'completed', user: { $in: studentIds } });
 
         // Batch Average Accuracy
         const result = await PerformanceAnalytics.aggregate([
+            {
+                $match: { userId: { $in: studentIds } }
+            },
             {
                 $group: {
                     _id: null,
@@ -42,7 +80,16 @@ exports.getBatchOverview = async (req, res) => {
 // Get Subject-wise performance comparison
 exports.getSubjectPerformance = async (req, res) => {
     try {
+        const scopedStudents = await getScopedStudents(req.user);
+        const studentIds = scopedStudents.map((student) => student._id);
+        if (!studentIds.length) {
+            return res.json({ success: true, data: [] });
+        }
+
         const stats = await PerformanceAnalytics.aggregate([
+            {
+                $match: { userId: { $in: studentIds } }
+            },
             {
                 $group: {
                     _id: "$subject",
@@ -63,8 +110,13 @@ exports.getSubjectPerformance = async (req, res) => {
 // Get Weakness Heatmap (Topics with lowest accuracy across batch)
 exports.getWeaknessHeatmap = async (req, res) => {
     try {
-        const { subject } = req.query;
-        const matchStage = subject ? { subject: subject } : {};
+        const scopedStudents = await getScopedStudents(req.user);
+        const studentIds = scopedStudents.map((student) => student._id);
+        const matchStage = buildAnalyticsMatch(studentIds, req);
+
+        if (!matchStage) {
+            return res.json({ success: true, data: [] });
+        }
 
         const weakTopics = await PerformanceAnalytics.aggregate([
             { $match: matchStage },
@@ -91,12 +143,21 @@ exports.getWeaknessHeatmap = async (req, res) => {
 // Get Placement Readiness Distribution
 exports.getReadinessDistribution = async (req, res) => {
     try {
+        const scopedStudents = await getScopedStudents(req.user);
+        const studentIds = scopedStudents.map((student) => student._id);
+        if (!studentIds.length) {
+            return res.json({ success: true, data: [] });
+        }
+
         // We need to calculate readiness for each student
         // This is expensive if we do it real-time for 1000 students
         // Ideally, readiness score is stored in User model or a separate collection
         // For now, we perform an aggregation
 
         const readinessData = await PerformanceAnalytics.aggregate([
+            {
+                $match: { userId: { $in: studentIds } }
+            },
             {
                 $group: {
                     _id: "$userId",

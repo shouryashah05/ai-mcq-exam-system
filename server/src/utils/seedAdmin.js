@@ -7,6 +7,7 @@ require('dotenv').config();
 const connectDB = require('../config/db');
 const User = require('../models/user.model');
 const bcrypt = require('bcryptjs');
+const { buildAdminId } = require('./userIdentity');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exam_system';
 
@@ -17,6 +18,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
     const email = process.env.ADMIN_EMAIL;
     const password = process.env.ADMIN_PASSWORD;
     const name = process.env.ADMIN_NAME || 'Administrator';
+    const adminId = process.env.ADMIN_ID || 'ADM001';
 
     if (!email || !password) {
       console.error('ADMIN_EMAIL and ADMIN_PASSWORD must be set in environment to seed admin.');
@@ -39,7 +41,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
       email,
       password: hashed,
       role: 'admin',
-      enrollmentNo: 'ADMIN001', // Dummy enrollment number for admin
+      adminId: adminId || buildAdminId(),
       isVerified: true // Admin is pre-verified
     });
     console.log('Seeded admin:', user.email);

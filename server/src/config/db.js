@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 let MongoMemoryServer;
 try {
   MongoMemoryServer = require('mongodb-memory-server').MongoMemoryServer;
@@ -8,38 +9,28 @@ try {
 
 const connectDB = async (mongoUri) => {
   let uri = mongoUri;
-  let memoryServer;
   try {
-    if (!uri && MongoMemoryServer) {
-      console.log('No MONGO_URI provided — starting in-memory MongoDB for dev.');
-      memoryServer = await MongoMemoryServer.create();
+    if (!uri && process.env.NODE_ENV === 'test' && MongoMemoryServer) {
+      const memoryServer = await MongoMemoryServer.create();
       uri = memoryServer.getUri();
+      logger.info('Started in-memory MongoDB for tests');
+    }
+
+    if (!uri) {
+      throw new Error('MONGO_URI is required to connect to MongoDB');
     }
 
     const conn = await mongoose.connect(uri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+      maxPoolSize: parseInt(process.env.MONGO_MAX_POOL_SIZE || '10', 10),
+      minPoolSize: parseInt(process.env.MONGO_MIN_POOL_SIZE || '2', 10),
+      maxIdleTimeMS: parseInt(process.env.MONGO_MAX_IDLE_TIME_MS || '45000', 10),
     });
-    console.log(`MongoDB connected: ${conn.connection.host || uri}`);
+    logger.info('MongoDB connected', { host: conn.connection.host || uri });
   } catch (err) {
-    console.error('MongoDB connection error:', err.message);
-    if (!mongoUri && MongoMemoryServer) {
-      try {
-        console.log('Attempting to start in-memory MongoDB as a fallback...');
-        memoryServer = await MongoMemoryServer.create();
-        const fallbackUri = memoryServer.getUri();
-        const conn2 = await mongoose.connect(fallbackUri, {
-          useNewUrlParser: true,
-          useUnifiedTopology: true,
-        });
-        console.log(`MongoDB connected (in-memory): ${conn2.connection.host || fallbackUri}`);
-        return;
-      } catch (err2) {
-        console.error('In-memory MongoDB connection failed:', err2.message);
-      }
-    }
+    logger.error('MongoDB connection error', { error: err });
     process.exit(1);
   }
 };
 
 module.exports = connectDB;
+module.exports.connect = connectDB;

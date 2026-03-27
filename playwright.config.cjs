@@ -14,6 +14,12 @@ module.exports = defineConfig({
   },
   webServer: [
     {
+      command: 'node e2e/start-ai-service.cjs',
+      url: 'http://127.0.0.1:5001/health',
+      reuseExistingServer: false,
+      timeout: 120000,
+    },
+    {
       command: 'node e2e/start-backend.cjs',
       url: 'http://127.0.0.1:5100/api/health',
       reuseExistingServer: false,

@@ -23,6 +23,18 @@ export default function Profile() {
         confirmPassword: ''
     });
 
+    const profileIdentifierLabel = authUser?.role === 'admin'
+        ? 'Admin ID'
+        : authUser?.role === 'teacher'
+            ? 'Employee ID'
+            : 'Enrollment Number';
+
+    const profileIdentifierValue = authUser?.role === 'admin'
+        ? (authUser?.adminId || '')
+        : authUser?.role === 'teacher'
+            ? (authUser?.employeeId || authUser?.enrollmentNo || '')
+            : (authUser?.enrollmentNo || '');
+
     useEffect(() => {
         loadProfile();
     }, []);
@@ -139,11 +151,11 @@ export default function Profile() {
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="profile-enrollment">Enrollment Number</label>
+                        <label htmlFor="profile-enrollment">{profileIdentifierLabel}</label>
                         <input
                             id="profile-enrollment"
                             type="text"
-                            value={authUser?.enrollmentNo || ''}
+                            value={profileIdentifierValue}
                             disabled
                             style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
                         />

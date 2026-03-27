@@ -9,7 +9,7 @@ router.use(verifyToken);
 router.post('/start', startExamValidation, startExam);
 router.put('/:attemptId/answer', saveAnswerValidation, saveAnswer);
 router.post('/:attemptId/submit', submitExam);
-router.get('/:attemptId', getAttempt);
 router.get('/history/list', getAttemptHistory);
+router.get('/:attemptId', getAttempt);
 
 module.exports = router;

@@ -1,5 +1,7 @@
 import api from './api';
 
+export const getReportStudents = () => api.get('/reports/students').then(r => r.data);
+
 export const getStudentPerformance = (examId) => {
   const params = new URLSearchParams();
   if (examId) params.append('examId', examId);

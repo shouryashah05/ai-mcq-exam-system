@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const PerformanceAnalytics = require('../models/performanceAnalytics.model');
 const ExamAttempt = require('../models/examAttempt.model');
 const Question = require('../models/question.model');
+const { applyAnalyticsAggregateUpdate } = require('../services/analyticsAggregation.service');
+const logger = require('../utils/logger');
 const {
     getStudentOverallReport,
     getStudentSubjectHistoryReport,
@@ -29,11 +31,11 @@ async function initRedis() {
     try {
         const { createClient } = require('redis');
         redisClient = createClient({ url: process.env.REDIS_URL });
-        redisClient.on('error', (err) => console.error('Redis error', err));
+        redisClient.on('error', (err) => logger.error('Redis error', { error: err }));
         await redisClient.connect();
-        console.log('Connected to Redis for analytics cache');
+        logger.info('Connected to Redis for analytics cache');
     } catch (err) {
-        console.warn('Redis not available, using in-memory cache', err.message);
+        logger.warn('Redis not available, using in-memory cache', { message: err.message });
         redisClient = null;
     }
 }
@@ -46,7 +48,7 @@ async function setCache(key, value, ttlMs = 300000) {
             await redisClient.set(key, str, { PX: ttlMs });
             return;
         } catch (err) {
-            console.warn('Redis set failed, falling back to memory', err.message);
+            logger.warn('Redis set failed, falling back to memory', { message: err.message });
         }
     }
     const expires = Date.now() + ttlMs;
@@ -61,7 +63,7 @@ async function getCache(key) {
             if (!raw) return null;
             return JSON.parse(raw);
         } catch (err) {
-            console.warn('Redis get failed, falling back to memory', err.message);
+            logger.warn('Redis get failed, falling back to memory', { message: err.message });
         }
     }
     const entry = inMemoryCache.get(key);
@@ -197,9 +199,9 @@ function logAiFallback(message, detail) {
 
     aiLastUnavailableLogAt = now;
     if (detail) {
-        console.warn(message, detail);
+        logger.warn(message, { detail });
     } else {
-        console.warn(message);
+        logger.warn(message);
     }
 }
 
@@ -209,7 +211,8 @@ exports.updatePerformanceMetrics = async (userId, examAttemptId) => {
         const attempt = await ExamAttempt.findById(examAttemptId).populate('answers.questionId');
         if (!attempt) return;
 
-        // We process each answer to update subject/topic analytics
+        const topicAggregates = new Map();
+
         for (const answer of attempt.answers) {
             if (!answer.questionId) continue;
 
@@ -220,91 +223,79 @@ exports.updatePerformanceMetrics = async (userId, examAttemptId) => {
             const isCorrect = answer.isCorrect;
             const timeSpent = answer.timeSpentSeconds || 0;
 
-            // Find or create analytics record for this user+subject+topic
-            let analytics = await PerformanceAnalytics.findOne({ userId, subject, topic });
+            const aggregateKey = `${subject}::${topic}`;
+            const currentAggregate = topicAggregates.get(aggregateKey) || {
+                userId,
+                subject,
+                topic,
+                totalAttempts: 0,
+                correctAttempts: 0,
+                wrongAttempts: 0,
+                unattemptedCount: 0,
+                totalTimeSeconds: 0,
+                lastDifficultyLevel: question.difficulty || 'Medium',
+            };
 
-            if (!analytics) {
-                analytics = new PerformanceAnalytics({
-                    userId,
-                    subject,
-                    topic,
-                    totalAttempts: 0,
-                    correctAttempts: 0,
-                    wrongAttempts: 0,
-                    unattemptedCount: 0,
-                    accuracy: 0,
-                    avgTimeSeconds: 0
-                });
-            }
-
-            // Update counters
-            analytics.totalAttempts += 1;
+            currentAggregate.totalAttempts += 1;
+            currentAggregate.totalTimeSeconds += timeSpent;
+            currentAggregate.lastDifficultyLevel = question.difficulty || currentAggregate.lastDifficultyLevel;
             if (isCorrect) {
-                analytics.correctAttempts += 1;
+                currentAggregate.correctAttempts += 1;
             } else if (answer.selectedOption === undefined || answer.selectedOption === null) {
-                // Depending on how you handle unattempted. Use specific logic if 'selectedOption' is explicitly null
-                // But usually 'null' means skipped.
-                analytics.unattemptedCount += 1;
+                currentAggregate.unattemptedCount += 1;
             } else {
-                analytics.wrongAttempts += 1;
+                currentAggregate.wrongAttempts += 1;
             }
 
-            // Update Average Time (Cumulative Moving Average)
-            // New Avg = ((Old Avg * (N-1)) + New Value) / N
-            // Here (N-1) is the count before this increment, which is (totalAttempts - 1)
-            const prevTotal = analytics.totalAttempts - 1;
-            analytics.avgTimeSeconds = ((analytics.avgTimeSeconds * prevTotal) + timeSpent) / analytics.totalAttempts;
+            topicAggregates.set(aggregateKey, currentAggregate);
 
-            // Update Accuracy
-            analytics.accuracy = (analytics.correctAttempts / analytics.totalAttempts) * 100;
-
-            analytics.lastAttemptDate = new Date();
-
-            await analytics.save();
-
-            // --- Update Question Statistics ---
-            // We use $inc and updates to avoid race conditions better than find/save
-            // await Question.findByIdAndUpdate(question._id, {
-            //   $inc: { 
-            //     totalAttempts: 1, 
-            //     correctAttempts: isCorrect ? 1 : 0 
-            //   },
-            //   // We can't easily do rolling average with atomic updates without aggregation or simplified math
-            //   // For simplicity/performance, let's just use the current attempt's time contribution 
-            //   // essentially we'd need the current avg and count. 
-            //   // To be accurate, we might need a separate read or complex update pipeline.
-            //   // Let's stick to simple increment for now and maybe re-calculate avg offline or:
-            //   // avgTime = (oldTotalTime + newTime) / newCount. But we don't store totalTime.
-            //   // Let's just skip avgTime on Question for now to avoid complexity, or do findOneAndUpdate.
-            // });
-
-            // Re-fetch to update avgTime accurately or use pipeline update (MongoDB 4.2+)
-            // db.questions.updateOne(
-            //   { _id: question._id },
-            //   [{ $set: { avgTimeSeconds: { $divide: [ { $add: [ { $multiply: [ "$avgTimeSeconds", "$totalAttempts" ] }, timeSpent ] }, { $add: [ "$totalAttempts", 1 ] } ] } } }]
-            // )
-            // But totalAttempts was just incremented? If we use pipeline, we can do it all in one go.
-
-            // Let's use a simpler approach: fetch, update, save for Question too.
-            // It's not high concurrency yet.
-            const qDoc = await Question.findById(question._id);
-            if (qDoc) {
-                // qDoc.totalAttempts and correctAttempts were NOT updated by the above $inc because we are separate.
-                // Actually, let's remove the $inc above and do it here manually.
-                const oldAttempts = qDoc.totalAttempts || 0;
-                const newAttempts = oldAttempts + 1;
-                qDoc.totalAttempts = newAttempts;
-                if (isCorrect) qDoc.correctAttempts = (qDoc.correctAttempts || 0) + 1;
-
-                const oldAvg = qDoc.avgTimeSeconds || 0;
-                qDoc.avgTimeSeconds = ((oldAvg * oldAttempts) + timeSpent) / newAttempts;
-
-                await qDoc.save();
-            }
+            await Question.updateOne(
+                { _id: question._id },
+                [
+                    {
+                        $set: {
+                            _previousTotalAttempts: { $ifNull: ['$totalAttempts', 0] },
+                            _previousAvgTimeSeconds: { $ifNull: ['$avgTimeSeconds', 0] },
+                            totalAttempts: { $ifNull: ['$totalAttempts', 0] },
+                            correctAttempts: { $ifNull: ['$correctAttempts', 0] },
+                        },
+                    },
+                    {
+                        $set: {
+                            totalAttempts: { $add: ['$_previousTotalAttempts', 1] },
+                            correctAttempts: { $add: ['$correctAttempts', isCorrect ? 1 : 0] },
+                            avgTimeSeconds: {
+                                $cond: [
+                                    { $gt: [{ $add: ['$_previousTotalAttempts', 1] }, 0] },
+                                    {
+                                        $divide: [
+                                            {
+                                                $add: [
+                                                    { $multiply: ['$_previousAvgTimeSeconds', '$_previousTotalAttempts'] },
+                                                    timeSpent,
+                                                ],
+                                            },
+                                            { $add: ['$_previousTotalAttempts', 1] },
+                                        ],
+                                    },
+                                    0,
+                                ],
+                            },
+                        },
+                    },
+                    {
+                        $unset: ['_previousTotalAttempts', '_previousAvgTimeSeconds'],
+                    },
+                ],
+            );
         }
-        console.log(`Performance metrics updated for user ${userId}`);
+
+        for (const aggregate of topicAggregates.values()) {
+            await applyAnalyticsAggregateUpdate(aggregate);
+        }
+        logger.info('Performance metrics updated', { userId, examAttemptId });
     } catch (error) {
-        console.error('Error updating performance metrics:', error);
+        logger.error('Error updating performance metrics', { error, userId, examAttemptId });
     }
 };
 
@@ -313,7 +304,7 @@ exports.getStudentAnalytics = async (req, res) => {
     try {
         const { userId } = req.params;
         ensureSelfOrAdmin(req, userId);
-        console.log(`[Analytics] Fetching for UserID: ${userId}`);
+        logger.info('Fetching student analytics', { userId });
 
         // Aggregation to get subject-wise summary
         const subjectStats = await PerformanceAnalytics.aggregate([
@@ -328,7 +319,7 @@ exports.getStudentAnalytics = async (req, res) => {
             }
         ]);
 
-        console.log(`[Analytics] Found ${subjectStats.length} subject records.`);
+        logger.info('Fetched student analytics', { userId, subjects: subjectStats.length });
         res.json({ success: true, data: subjectStats });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -460,7 +451,7 @@ exports.getAIInsights = async (req, res) => {
                     }
 
                     aiConsecutiveFailures += 1;
-                    console.warn(`AI call attempt ${attempt + 1} failed:`, err.message);
+                    logger.warn('AI call attempt failed', { attempt: attempt + 1, message: err.message });
                     if (aiConsecutiveFailures >= AI_CIRCUIT_THRESHOLD) {
                         aiCircuitOpenUntil = Date.now() + AI_CIRCUIT_OPEN_MS;
                         logAiFallback(`Opening AI circuit until ${new Date(aiCircuitOpenUntil).toISOString()}`);
@@ -484,12 +475,12 @@ exports.getAIInsights = async (req, res) => {
             await setCache(`ai_insights_${userId}`, fallback, 60000);
             return res.json({ success: true, data: fallback, cached: true, fallback: true });
         } catch (fallbackErr) {
-            console.error('Fallback analytics error:', fallbackErr);
+            logger.error('Fallback analytics error', { error: fallbackErr, userId });
             return res.json({ success: true, data: { profile: { cluster: 'Unavailable', reason: 'Insufficient data' }, trend: { trend: 'Unknown' }, weak_areas: [], recommendation: 'Practice more.' } });
         }
 
     } catch (error) {
-        console.error('Error fetching AI insights:', error);
+        logger.error('Error fetching AI insights', { error, userId: req.params.userId });
         res.status(500).json({ success: false, message: 'Failed to fetch insights' });
     }
 };

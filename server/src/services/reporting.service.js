@@ -14,6 +14,21 @@ const getAnswerMarks = (answer) => {
     return 1;
 };
 
+const isStudentVisibleInScope = (scope, user) => {
+    const managedClasses = Array.isArray(scope?.classes) ? scope.classes : Array.isArray(scope?.batches) ? scope.batches : [];
+    const managedLabBatchAssignments = Array.isArray(scope?.labBatchAssignments) ? scope.labBatchAssignments : [];
+
+    if (managedClasses.length === 0 && managedLabBatchAssignments.length === 0) {
+        return true;
+    }
+
+    if (managedClasses.includes(user?.batch || '')) {
+        return true;
+    }
+
+    return managedLabBatchAssignments.some((entry) => entry.className === (user?.batch || '') && entry.labBatchName === (user?.labBatch || ''));
+};
+
 const isAnswered = (answer) => answer?.selectedOption !== null && answer?.selectedOption !== undefined;
 
 const computeTrend = (entries) => {
@@ -101,9 +116,10 @@ const buildAttemptMetrics = (attempt, subjectFilter = null) => {
     };
 };
 
-const buildQuery = ({ userId, startDate, endDate }) => {
+const buildQuery = ({ userId, startDate, endDate, examIds }) => {
     const query = { status: 'completed' };
     if (userId) query.user = userId;
+    if (examIds) query.exam = { $in: examIds };
 
     if (startDate || endDate) {
         query.endTime = {};
@@ -115,8 +131,12 @@ const buildQuery = ({ userId, startDate, endDate }) => {
 };
 
 const fetchUserSummary = async (userId) => {
-    const user = await User.findById(userId).select('name firstName lastName email');
+    const user = await User.findById(userId).select('name firstName lastName email role batch labBatch');
     if (!user) {
+        return null;
+    }
+
+    if (user.role !== 'student') {
         return null;
     }
 
@@ -131,9 +151,13 @@ const fetchUserSummary = async (userId) => {
     };
 };
 
-const fetchAttempts = async ({ userId, startDate, endDate }) => {
-    const attempts = await ExamAttempt.find(buildQuery({ userId, startDate, endDate }))
-        .populate('user', 'name firstName lastName email role')
+const fetchAttempts = async ({ userId, startDate, endDate, examIds }) => {
+    if (Array.isArray(examIds) && examIds.length === 0) {
+        return [];
+    }
+
+    const attempts = await ExamAttempt.find(buildQuery({ userId, startDate, endDate, examIds }))
+        .populate('user', 'name firstName lastName email role batch labBatch')
         .populate('exam', 'title totalMarks passingMarks')
         .populate('answers.questionId', 'subject topic marks')
         .sort({ endTime: 1, createdAt: 1 });
@@ -141,13 +165,30 @@ const fetchAttempts = async ({ userId, startDate, endDate }) => {
     return attempts;
 };
 
-async function getSubjectWiseStudentReport({ subject, startDate, endDate }) {
-    const attempts = await fetchAttempts({ startDate, endDate });
+async function getReportStudentsForScope({ scope = null }) {
+    const attempts = await fetchAttempts({ examIds: scope?.examIds });
+    const uniqueStudents = new Map();
+
+    attempts.forEach((attempt) => {
+        const user = attempt.user;
+        if (!user || user.role !== 'student' || !isStudentVisibleInScope(scope, user)) {
+            return;
+        }
+
+        const serializedUser = serializeUser(user);
+        uniqueStudents.set(String(serializedUser._id), serializedUser);
+    });
+
+    return Array.from(uniqueStudents.values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function getSubjectWiseStudentReport({ subject, startDate, endDate, scope = null }) {
+    const attempts = await fetchAttempts({ startDate, endDate, examIds: scope?.examIds });
     const students = new Map();
 
     attempts.forEach((attempt) => {
         const metrics = buildAttemptMetrics(attempt, subject);
-        if (!metrics || !attempt.user || attempt.user.role === 'admin') {
+        if (!metrics || !attempt.user || attempt.user.role !== 'student' || !isStudentVisibleInScope(scope, attempt.user)) {
             return;
         }
 
@@ -235,11 +276,11 @@ async function getSubjectWiseStudentReport({ subject, startDate, endDate }) {
     return { subject, summary, students: rows };
 }
 
-async function getStudentSubjectHistoryReport({ userId, subject, startDate, endDate }) {
+async function getStudentSubjectHistoryReport({ userId, subject, startDate, endDate, scope = null }) {
     const student = await fetchUserSummary(userId);
-    if (!student) return null;
+    if (!student || !isStudentVisibleInScope(scope, student)) return null;
 
-    const attempts = await fetchAttempts({ userId, startDate, endDate });
+    const attempts = await fetchAttempts({ userId, startDate, endDate, examIds: scope?.examIds });
     const timeline = [];
     const topicStats = {};
     let totalQuestions = 0;
@@ -306,11 +347,11 @@ async function getStudentSubjectHistoryReport({ userId, subject, startDate, endD
     };
 }
 
-async function getStudentOverallReport({ userId, startDate, endDate }) {
+async function getStudentOverallReport({ userId, startDate, endDate, scope = null }) {
     const student = await fetchUserSummary(userId);
-    if (!student) return null;
+    if (!student || !isStudentVisibleInScope(scope, student)) return null;
 
-    const attempts = await fetchAttempts({ userId, startDate, endDate });
+    const attempts = await fetchAttempts({ userId, startDate, endDate, examIds: scope?.examIds });
     const subjectMap = new Map();
     const overallTopicStats = {};
     const recentAttempts = [];
@@ -430,6 +471,7 @@ async function getStudentOverallReport({ userId, startDate, endDate }) {
 }
 
 module.exports = {
+    getReportStudentsForScope,
     getStudentOverallReport,
     getStudentSubjectHistoryReport,
     getSubjectWiseStudentReport,

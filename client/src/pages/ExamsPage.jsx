@@ -19,12 +19,17 @@ export default function ExamsPage() {
                 }
                 const now = new Date();
                 const available = (res.exams || []).filter(e => {
+                    const creatorRole = e?.createdBy?.role;
+                    const isStandardAssignedExam = e?.examType !== 'adaptive' && (creatorRole === 'admin' || creatorRole === 'teacher');
                     const isActive = e.isActive;
-                    const isAdminCreated = e.createdBy?.role === 'admin';
                     const startDate = new Date(e.startDate);
                     const endDate = new Date(e.endDate);
                     const withinWindow = !Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()) && startDate <= now && endDate >= now;
-                    return isActive && isAdminCreated && withinWindow;
+                    return isStandardAssignedExam && isActive && withinWindow;
+                }).sort((left, right) => {
+                    const leftCreatedAt = new Date(left?.createdAt || left?.startDate || 0).getTime();
+                    const rightCreatedAt = new Date(right?.createdAt || right?.startDate || 0).getTime();
+                    return rightCreatedAt - leftCreatedAt;
                 });
                 setExams(available);
             } catch (err) {
@@ -46,7 +51,7 @@ export default function ExamsPage() {
             <div style={{ marginBottom: '28px' }}>
                 <h1 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 800 }}>📋 Available Exams</h1>
                 <p style={{ margin: '6px 0 0 0', color: '#666', fontSize: '0.95rem' }}>
-                    Active exams assigned by your admin. Click "Start Exam" to begin.
+                    Active exams assigned by your admin or teacher. Click "Start Exam" to begin.
                 </p>
             </div>
 

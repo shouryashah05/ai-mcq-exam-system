@@ -3,6 +3,7 @@ const ExamAttempt = require('../models/examAttempt.model');
 const Question = require('../models/question.model'); // Added this import as it's used in submitAdaptiveAnswer
 const adaptiveTestService = require('../services/adaptiveTest.service');
 const performanceAnalysisService = require('../services/performanceAnalysis.service');
+const { buildShuffledOptionData } = require('../utils/questionPresentation');
 
 exports.startAdaptiveTest = async (req, res) => {
     try {
@@ -47,8 +48,10 @@ exports.startAdaptiveTest = async (req, res) => {
             // For now, let's fetch the first question.
             const firstQuestion = await Question.findById(exam.questions[0]);
             if (firstQuestion) {
+                const shuffledOptionData = buildShuffledOptionData(firstQuestion);
                 attempt.answers.push({
                     questionId: firstQuestion._id,
+                    ...shuffledOptionData,
                     subject: firstQuestion.subject,
                     topic: firstQuestion.topic
                 });
@@ -67,10 +70,11 @@ exports.startAdaptiveTest = async (req, res) => {
             // Re-fetch to be safe and get options
             const q = await Question.findById(attempt.answers[0].questionId);
             if (q) {
+                const firstAnswer = attempt.answers[0];
                 firstQuestionData = {
                     _id: q._id,
                     questionText: q.questionText,
-                    options: q.options,
+                    options: firstAnswer.shuffledOptions && firstAnswer.shuffledOptions.length ? firstAnswer.shuffledOptions : q.options,
                     marks: q.marks,
                     difficulty: q.difficulty,
                     questionImageUrl: q.questionImageUrl || ''
@@ -154,10 +158,21 @@ exports.submitAdaptiveAnswer = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Question details not found' });
         }
 
-        // 1. Grade the answer
-        const isCorrect = (parseInt(selectedOption) === currentQuestion.correctAnswer);
+        const answerEntry = attempt.answers[answerIndex];
+        const optionCount = Array.isArray(answerEntry.shuffledOptions) ? answerEntry.shuffledOptions.length : 0;
 
-        attempt.answers[answerIndex].selectedOption = selectedOption;
+        let normalizedSelectedOption = selectedOption;
+        if (selectedOption !== null && selectedOption !== undefined) {
+            normalizedSelectedOption = Number(selectedOption);
+            if (!Number.isInteger(normalizedSelectedOption) || normalizedSelectedOption < 0 || normalizedSelectedOption >= optionCount) {
+                return res.status(400).json({ success: false, message: `Selected option must be between 0 and ${optionCount - 1}` });
+            }
+        }
+
+        // 1. Grade the answer
+        const isCorrect = normalizedSelectedOption === answerEntry.correctOptionIndex;
+
+        attempt.answers[answerIndex].selectedOption = normalizedSelectedOption;
         attempt.answers[answerIndex].isCorrect = isCorrect;
         attempt.answers[answerIndex].marksAwarded = isCorrect ? 1 : 0;
         attempt.answers[answerIndex].timeSpentSeconds = timeSpent || 0;
@@ -214,9 +229,11 @@ exports.submitAdaptiveAnswer = async (req, res) => {
         }
 
         if (nextQuestion && attempt.answers.length < 10) {
+            const shuffledOptionData = buildShuffledOptionData(nextQuestion);
             // Add next question to attempt
             attempt.answers.push({
                 questionId: nextQuestion._id,
+                ...shuffledOptionData,
                 subject: nextQuestion.subject,
                 topic: nextQuestion.topic
             });
@@ -227,14 +244,14 @@ exports.submitAdaptiveAnswer = async (req, res) => {
                 success: true,
                 data: {
                     isCorrect,
-                    correctAnswer: currentQuestion.correctAnswer, // Feedback
+                    correctAnswer: answerEntry.correctOptionIndex,
                     explanation: currentQuestion.explanation,
                     currentQuestionNumber: attempt.answers.length,
                     totalQuestions: 10,
                     nextQuestion: {
                         _id: nextQuestion._id,
                         questionText: nextQuestion.questionText,
-                        options: nextQuestion.options,
+                        options: shuffledOptionData.shuffledOptions,
                         marks: nextQuestion.marks,
                         difficulty: nextQuestion.difficulty,
                         questionImageUrl: nextQuestion.questionImageUrl || ''
@@ -254,7 +271,7 @@ exports.submitAdaptiveAnswer = async (req, res) => {
                 success: true,
                 data: {
                     isCorrect,
-                    correctAnswer: currentQuestion.correctAnswer,
+                    correctAnswer: answerEntry.correctOptionIndex,
                     explanation: currentQuestion.explanation,
                     isExamFinished: true,
                     finalScore: attempt.score
@@ -331,8 +348,8 @@ exports.getAttemptAnalysis = async (req, res) => {
             endTime: attempt.endTime,
             questions: attempt.answers.map(ans => ({
                 questionText: ans.questionId.questionText,
-                options: ans.questionId.options,
-                correctAnswer: ans.questionId.correctAnswer,
+                options: ans.shuffledOptions && ans.shuffledOptions.length ? ans.shuffledOptions : ans.questionId.options,
+                correctAnswer: typeof ans.correctOptionIndex === 'number' ? ans.correctOptionIndex : ans.questionId.correctAnswer,
                 selectedOption: ans.selectedOption,
                 isCorrect: ans.isCorrect,
                 explanation: ans.questionId.explanation,

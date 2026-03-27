@@ -9,9 +9,9 @@ An intelligent examination system that adapts to student performance and provide
 - **Admin Dashboard**: Batch-level heatmaps and weak-topic identification.
 
 ## 🛠 Tech Stack
-- **Frontend**: React.js, Tailwind CSS, Recharts
+- **Frontend**: React.js, Vite, custom CSS, Recharts
 - **Backend**: Node.js, Express, MongoDB
-- **AI Engine**: Python (Flask, Scikit-Learn, Pandas)
+- **AI Engine**: Python (Flask, NumPy, Pandas)
 
 ## 📦 Setup & Installation
 
@@ -44,6 +44,12 @@ cd server
 npm run dev
 ```
 
+**Terminal 1b (Background jobs for analytics + email):**
+```bash
+cd server
+npm run worker
+```
+
 **Terminal 2 (AI Service):**
 ```bash
 cd ai-service
@@ -58,6 +64,24 @@ npm run dev
 
 ### 3. Run the stack locally
 Follow the instructions in `DEV_SETUP.md` for local development commands (no Docker).
+
+## 🔐 Production Notes
+- Set `JWT_SECRET` to a long random value of at least 32 characters.
+- Set `MONGO_URI` explicitly; the server no longer falls back to an in-memory database outside tests.
+- Restrict browser access with `ALLOWED_ORIGINS` on both the Node API and Flask AI service.
+- Run the background worker with `npm run worker` so analytics jobs and queued emails are processed.
+- Browser auth now uses secure HTTP-only cookies; keep `COOKIE_SECURE` and `COOKIE_SAME_SITE` aligned with your deployment topology.
+
+## 👩‍🏫 Teacher Assignments Migration
+- Student records now include a required `batch` value.
+- Teacher records now use `subjects` and `assignedBatches` to scope questions, reports, and analytics.
+- Older data can be backfilled before rollout with:
+
+```bash
+npm --prefix server run backfill:user-assignments
+```
+
+- Run the script once in dry-run mode first, review the output, then apply it for real in the target environment.
 
 ## 🧠 AI & Logic Explained
 See [VIVA_EXPLANATION.md](./VIVA_EXPLANATION.md) for detailed architecture and adaptivity logic usage.

@@ -1,14 +1,61 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchExams, createExam, updateExam, deleteExam } from '../services/examService';
 import { createQuestion, fetchQuestions, uploadQuestionImage, deleteQuestionImage } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SymbolPicker from '../components/SymbolPicker';
 import { showToast } from '../utils/appEvents';
+import { AuthContext } from '../context/AuthContext';
+import { buildTeacherAudienceBadges, getAudienceBadgeStyle } from '../utils/examAudience';
 
 const FILTER_ALL = 'all';
 const MIN_OPTIONS = 2;
+const EXAM_CREATION_MODE_MANUAL = 'manual';
+const EXAM_CREATION_MODE_AUTO = 'auto';
 
 const QUESTION_SUBJECT_OPTIONS = ['DSA', 'DBMS', 'OS', 'CN', 'Aptitude', 'Logical', 'Verbal'];
+const DIFFICULTY_OPTIONS = ['Easy', 'Medium', 'Hard'];
+
+const sanitizeSubjectList = (subjects) => Array.from(new Set(
+  (Array.isArray(subjects) ? subjects : [])
+    .map((subject) => String(subject || '').trim())
+    .filter(Boolean)
+));
+
+const normalizeAssignedClasses = (classes) => Array.from(new Set(
+  (Array.isArray(classes) ? classes : [])
+    .map((className) => String(className || '').trim())
+    .filter(Boolean)
+));
+
+const normalizeAssignedLabBatches = (assignments) => Array.from(new Map(
+  (Array.isArray(assignments) ? assignments : [])
+    .map((assignment) => {
+      if (typeof assignment === 'string') {
+        const [className, labBatchName] = assignment.split('::').map((value) => String(value || '').trim());
+        return { className, labBatchName };
+      }
+
+      return {
+        className: String(assignment?.className || assignment?.class || '').trim(),
+        labBatchName: String(assignment?.labBatchName || assignment?.labBatch || '').trim()
+      };
+    })
+    .filter((assignment) => assignment.className && assignment.labBatchName)
+    .map((assignment) => [`${assignment.className}::${assignment.labBatchName}`, assignment])
+).values());
+
+const buildLabBatchAssignmentKey = (assignment) => `${assignment.className}::${assignment.labBatchName}`;
+const buildLabBatchAssignmentLabel = (assignment) => `${assignment.className} / ${assignment.labBatchName}`;
+
+const audienceBadgeBaseStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '4px 8px',
+  borderRadius: '999px',
+  fontSize: '12px',
+  fontWeight: 600,
+  lineHeight: 1.2,
+};
 
 const getOptionLabel = (index) => {
   let label = '';
@@ -35,18 +82,23 @@ const formatDateTimeLocal = (value) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-const buildDefaultExamForm = () => {
+const buildDefaultExamForm = (subjectOptions = [], isTeacher = false) => {
   const now = new Date();
   const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const defaultSubject = isTeacher
+    ? (subjectOptions[0] || '')
+    : 'Mixed';
 
   return {
     title: '',
-    subject: 'Mixed',
+    subject: defaultSubject,
     description: '',
     duration: 60,
     totalMarks: 0,
     passingMarks: 0,
     selectedQuestions: [],
+    assignedClasses: [],
+    assignedLabBatches: [],
     startDate: formatDateTimeLocal(now),
     endDate: formatDateTimeLocal(inSevenDays),
     isActive: true,
@@ -76,7 +128,22 @@ const createSelectedQuestion = (question) => ({
 
 const computeSelectedMarks = (selectedQuestions = []) => selectedQuestions.reduce((sum, item) => sum + (Number(item.marks) || 0), 0);
 
-const buildValidationErrors = (form) => {
+const buildDefaultAutoConfig = () => ({
+  Easy: 0,
+  Medium: 0,
+  Hard: 0
+});
+
+const shuffleQuestions = (items = []) => {
+  const nextItems = [...items];
+  for (let index = nextItems.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [nextItems[index], nextItems[swapIndex]] = [nextItems[swapIndex], nextItems[index]];
+  }
+  return nextItems;
+};
+
+const buildValidationErrors = (form, { isTeacher = false } = {}) => {
   const errors = {};
   const trimmedTitle = form.title.trim();
   const duration = Number(form.duration);
@@ -105,6 +172,10 @@ const buildValidationErrors = (form) => {
     errors.selectedQuestions = 'Select at least one question.';
   }
 
+  if (isTeacher && !form.assignedClasses.length && !form.assignedLabBatches.length) {
+    errors.audience = 'Select at least one class or lab batch.';
+  }
+
   if (!Number.isInteger(totalMarks) || totalMarks <= 0) {
     errors.totalMarks = 'Total marks must be greater than 0.';
   }
@@ -131,6 +202,17 @@ const buildValidationErrors = (form) => {
 };
 
 export default function AdminExams() {
+  const { user } = useContext(AuthContext);
+  const isTeacher = user?.role === 'teacher';
+  const teacherAssignedSubjects = useMemo(() => sanitizeSubjectList(user?.subjects), [user?.subjects]);
+  const teacherAssignedClasses = useMemo(
+    () => normalizeAssignedClasses(user?.assignedClasses ?? user?.assignedBatches),
+    [user?.assignedBatches, user?.assignedClasses]
+  );
+  const teacherAssignedLabBatches = useMemo(
+    () => normalizeAssignedLabBatches(user?.assignedLabBatches),
+    [user?.assignedLabBatches]
+  );
   const [exams, setExams] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [questionSearch, setQuestionSearch] = useState('');
@@ -144,6 +226,8 @@ export default function AdminExams() {
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(() => buildDefaultExamForm());
+  const [examCreationMode, setExamCreationMode] = useState(EXAM_CREATION_MODE_MANUAL);
+  const [autoConfig, setAutoConfig] = useState(() => buildDefaultAutoConfig());
   const [showInlineQuestionForm, setShowInlineQuestionForm] = useState(false);
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
   const [questionImageUploading, setQuestionImageUploading] = useState(false);
@@ -154,8 +238,22 @@ export default function AdminExams() {
   const inlineOptionRefs = useRef([]);
 
   const questionMap = useMemo(() => new Map(questions.map((question) => [question._id, question])), [questions]);
-  const adminGeneratedExams = useMemo(() => exams.filter((exam) => exam.createdBy?.role === 'admin'), [exams]);
+  const managedExams = useMemo(() => {
+    if (isTeacher) {
+      return exams.filter((exam) => String(exam.createdBy?._id || exam.createdBy) === String(user?._id || ''));
+    }
+
+    return exams.filter((exam) => exam.createdBy?.role === 'admin');
+  }, [exams, isTeacher, user?._id]);
   const selectedQuestionIds = useMemo(() => new Set(form.selectedQuestions.map((item) => item.questionId)), [form.selectedQuestions]);
+  const selectedLabBatchKeys = useMemo(
+    () => new Set(normalizeAssignedLabBatches(form.assignedLabBatches).map(buildLabBatchAssignmentKey)),
+    [form.assignedLabBatches]
+  );
+  const availableExamSubjects = useMemo(
+    () => (isTeacher ? teacherAssignedSubjects : QUESTION_SUBJECT_OPTIONS),
+    [isTeacher, teacherAssignedSubjects]
+  );
 
   const effectiveSubjectFilter = questionSubjectFilter !== FILTER_ALL
     ? questionSubjectFilter
@@ -164,8 +262,10 @@ export default function AdminExams() {
       : FILTER_ALL;
 
   const subjectOptions = useMemo(
-    () => Array.from(new Set(questions.map((question) => question.subject).filter(Boolean))).sort(),
-    [questions]
+    () => (isTeacher
+      ? teacherAssignedSubjects
+      : Array.from(new Set(questions.map((question) => question.subject).filter(Boolean))).sort()),
+    [isTeacher, questions, teacherAssignedSubjects]
   );
 
   const topicOptions = useMemo(() => {
@@ -189,6 +289,23 @@ export default function AdminExams() {
     });
   }, [questions, questionSearch, effectiveSubjectFilter, questionDifficultyFilter, questionTopicFilter]);
 
+  const autoGenerationPool = useMemo(() => {
+    return questions.filter((question) => (
+      form.subject === 'Mixed' || question.subject === form.subject
+    ));
+  }, [questions, form.subject]);
+
+  const autoGenerationStats = useMemo(() => {
+    return DIFFICULTY_OPTIONS.reduce((stats, difficulty) => {
+      stats[difficulty] = autoGenerationPool.filter((question) => question.difficulty === difficulty).length;
+      return stats;
+    }, {});
+  }, [autoGenerationPool]);
+
+  const autoRequestedCount = useMemo(() => {
+    return DIFFICULTY_OPTIONS.reduce((total, difficulty) => total + (Number(autoConfig[difficulty]) || 0), 0);
+  }, [autoConfig]);
+
   const selectedQuestionDetails = useMemo(
     () => form.selectedQuestions
       .map((item) => {
@@ -205,7 +322,7 @@ export default function AdminExams() {
   );
 
   const previewQuestion = previewQuestionId ? questionMap.get(previewQuestionId) : null;
-  const validationErrors = useMemo(() => buildValidationErrors(form), [form]);
+  const validationErrors = useMemo(() => buildValidationErrors(form, { isTeacher }), [form, isTeacher]);
   const isFormValid = Object.keys(validationErrors).length === 0;
 
   const updateForm = (updates) => {
@@ -216,6 +333,15 @@ export default function AdminExams() {
   const updateQuestionForm = (updates) => {
     setQuestionFormError(null);
     setQuestionForm((prev) => ({ ...prev, ...updates }));
+  };
+
+  const updateAutoConfig = (difficulty, value) => {
+    const nextValue = Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+    setError(null);
+    setAutoConfig((prev) => ({
+      ...prev,
+      [difficulty]: nextValue
+    }));
   };
 
   const insertSymbolIntoField = ({ field, symbol, input, optionIndex }) => {
@@ -289,7 +415,10 @@ export default function AdminExams() {
     setError(null);
 
     try {
-      const [examResponse, questionResponse] = await Promise.all([fetchExams(), fetchQuestions()]);
+      const [examResponse, questionResponse] = await Promise.all([
+        fetchExams({ mine: isTeacher }),
+        isTeacher ? fetchQuestions({ scope: 'assigned' }) : fetchQuestions({})
+      ]);
       setExams(examResponse.exams || []);
       setQuestions(questionResponse.questions || []);
     } catch (err) {
@@ -301,7 +430,35 @@ export default function AdminExams() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [isTeacher]);
+
+  useEffect(() => {
+    if (!isTeacher) {
+      return;
+    }
+
+    const nextSubject = teacherAssignedSubjects[0] || '';
+    if (!nextSubject) {
+      return;
+    }
+
+    setForm((prev) => {
+      if (prev.subject && teacherAssignedSubjects.includes(prev.subject)) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        subject: nextSubject,
+      };
+    });
+
+    setQuestionSubjectFilter((prev) => (
+      prev !== FILTER_ALL && teacherAssignedSubjects.includes(prev)
+        ? prev
+        : nextSubject
+    ));
+  }, [isTeacher, teacherAssignedSubjects]);
 
   useEffect(() => {
     const totalMarks = computeSelectedMarks(form.selectedQuestions);
@@ -327,19 +484,35 @@ export default function AdminExams() {
   }, [form.selectedQuestions]);
 
   const openCreateForm = () => {
+    const defaultSubject = isTeacher ? (teacherAssignedSubjects[0] || '') : FILTER_ALL;
     setEditId(null);
+    setExamCreationMode(EXAM_CREATION_MODE_MANUAL);
+    setAutoConfig(buildDefaultAutoConfig());
     setPreviewQuestionId(null);
     setQuestionSearch('');
-    setQuestionSubjectFilter(FILTER_ALL);
+    setQuestionSubjectFilter(defaultSubject);
     setQuestionDifficultyFilter(FILTER_ALL);
     setQuestionTopicFilter(FILTER_ALL);
     setError(null);
     setQuestionFormError(null);
     setQuestionImageUploading(false);
     setShowInlineQuestionForm(false);
-    setForm(buildDefaultExamForm());
-    setQuestionForm(buildInlineQuestionForm());
+    setForm(buildDefaultExamForm(availableExamSubjects, isTeacher));
+    setQuestionForm(buildInlineQuestionForm(isTeacher ? (teacherAssignedSubjects[0] || '') : 'Mixed'));
     setShowForm(true);
+  };
+
+  const handleExamCreationModeChange = (mode) => {
+    setExamCreationMode(mode);
+    setError(null);
+    setPreviewQuestionId(null);
+    setShowInlineQuestionForm(false);
+    setForm((prev) => ({
+      ...prev,
+      selectedQuestions: [],
+      totalMarks: 0,
+      passingMarks: 0
+    }));
   };
 
   const updateInlineQuestionOption = (index, value) => {
@@ -557,6 +730,73 @@ export default function AdminExams() {
     updateForm({ selectedQuestions: [] });
   };
 
+  const toggleAssignedClass = (className) => {
+    const normalizedClassName = String(className || '').trim();
+    if (!normalizedClassName) {
+      return;
+    }
+
+    updateForm({
+      assignedClasses: form.assignedClasses.includes(normalizedClassName)
+        ? form.assignedClasses.filter((entry) => entry !== normalizedClassName)
+        : [...form.assignedClasses, normalizedClassName]
+    });
+  };
+
+  const toggleAssignedLabBatch = (assignment) => {
+    const normalizedAssignments = normalizeAssignedLabBatches(form.assignedLabBatches);
+    const assignmentKey = buildLabBatchAssignmentKey(assignment);
+    const hasAssignment = normalizedAssignments.some((entry) => buildLabBatchAssignmentKey(entry) === assignmentKey);
+
+    updateForm({
+      assignedLabBatches: hasAssignment
+        ? normalizedAssignments.filter((entry) => buildLabBatchAssignmentKey(entry) !== assignmentKey)
+        : [...normalizedAssignments, assignment]
+    });
+  };
+
+  const handleAutoGenerateQuestions = () => {
+    const requestedCounts = DIFFICULTY_OPTIONS.reduce((counts, difficulty) => {
+      counts[difficulty] = Math.max(0, Number(autoConfig[difficulty]) || 0);
+      return counts;
+    }, {});
+
+    const totalRequested = Object.values(requestedCounts).reduce((sum, count) => sum + count, 0);
+    if (totalRequested <= 0) {
+      setError('Enter at least one question count before auto-generating an exam.');
+      return;
+    }
+
+    const nextSelectedQuestions = [];
+
+    for (const difficulty of DIFFICULTY_OPTIONS) {
+      const requiredCount = requestedCounts[difficulty];
+      if (!requiredCount) {
+        continue;
+      }
+
+      const matchingQuestions = autoGenerationPool.filter((question) => question.difficulty === difficulty);
+      if (matchingQuestions.length < requiredCount) {
+        setError(`Only ${matchingQuestions.length} ${difficulty.toLowerCase()} question(s) are available for ${form.subject === 'Mixed' ? 'the selected subject mix' : form.subject}. Reduce the requested count or add more questions.`);
+        return;
+      }
+
+      nextSelectedQuestions.push(...shuffleQuestions(matchingQuestions).slice(0, requiredCount).map(createSelectedQuestion));
+    }
+
+    const totalMarks = computeSelectedMarks(nextSelectedQuestions);
+    const recommendedPassingMarks = totalMarks > 0 ? Math.floor(totalMarks * 0.4) : 0;
+
+    setError(null);
+    setPreviewQuestionId(nextSelectedQuestions[0]?.questionId || null);
+    setForm((prev) => ({
+      ...prev,
+      selectedQuestions: nextSelectedQuestions,
+      totalMarks,
+      passingMarks: recommendedPassingMarks
+    }));
+  };
+
   const handleEdit = async (exam) => {
     const discarded = await discardInlineQuestionForm(exam.subject || 'Mixed');
     if (!discarded && questionForm.questionImagePublicId) {
@@ -579,9 +819,11 @@ export default function AdminExams() {
     setError(null);
     setPreviewQuestionId(selectedQuestions[0]?.questionId || null);
     setQuestionSearch('');
-    setQuestionSubjectFilter(FILTER_ALL);
+    setQuestionSubjectFilter(isTeacher ? (exam.subject || teacherAssignedSubjects[0] || '') : FILTER_ALL);
     setQuestionDifficultyFilter(FILTER_ALL);
     setQuestionTopicFilter(FILTER_ALL);
+    setExamCreationMode(EXAM_CREATION_MODE_MANUAL);
+    setAutoConfig(buildDefaultAutoConfig());
     setQuestionFormError(null);
     setQuestionImageUploading(false);
     setShowInlineQuestionForm(false);
@@ -593,6 +835,8 @@ export default function AdminExams() {
       totalMarks: exam.totalMarks,
       passingMarks: exam.passingMarks,
       selectedQuestions,
+      assignedClasses: normalizeAssignedClasses(exam.assignedClasses),
+      assignedLabBatches: normalizeAssignedLabBatches(exam.assignedLabBatches),
       startDate: formatDateTimeLocal(exam.startDate),
       endDate: formatDateTimeLocal(exam.endDate),
       isActive: exam.isActive,
@@ -620,6 +864,8 @@ export default function AdminExams() {
       totalMarks: Number(form.totalMarks),
       passingMarks: Number(form.passingMarks),
       questions: form.selectedQuestions.map((item) => item.questionId),
+      assignedClasses: normalizeAssignedClasses(form.assignedClasses),
+      assignedLabBatches: normalizeAssignedLabBatches(form.assignedLabBatches),
       startDate: form.startDate,
       endDate: form.endDate,
       isActive: form.isActive,
@@ -640,7 +886,7 @@ export default function AdminExams() {
         setError('Exam was saved, but the temporary quick-add question image could not be deleted.');
       }
 
-      setForm(buildDefaultExamForm());
+      setForm(buildDefaultExamForm(availableExamSubjects, isTeacher));
       setEditId(null);
       setPreviewQuestionId(null);
       resetInlineQuestionForm();
@@ -667,7 +913,7 @@ export default function AdminExams() {
   return (
     <div className="container">
       <div className="nav">
-        <h2>Manage Exams</h2>
+        <h2>{isTeacher ? 'Manage My Exams' : 'Manage Exams'}</h2>
         <button
           type="button"
           onClick={async () => {
@@ -680,7 +926,9 @@ export default function AdminExams() {
               setShowForm(false);
               setEditId(null);
               setPreviewQuestionId(null);
-              setForm(buildDefaultExamForm());
+              setExamCreationMode(EXAM_CREATION_MODE_MANUAL);
+              setAutoConfig(buildDefaultAutoConfig());
+              setForm(buildDefaultExamForm(availableExamSubjects, isTeacher));
               return;
             }
 
@@ -695,7 +943,32 @@ export default function AdminExams() {
 
       {showForm && (
         <form onSubmit={handleSubmit} className="card">
-          <h3>{editId ? 'Edit' : 'Create'} Exam</h3>
+          <h3>
+            {editId
+              ? 'Edit Exam'
+              : examCreationMode === EXAM_CREATION_MODE_AUTO
+                ? 'Auto Generate Exam'
+                : 'Create Exam Manually'}
+          </h3>
+
+          {!editId && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              <button
+                type="button"
+                className={examCreationMode === EXAM_CREATION_MODE_MANUAL ? 'button' : 'button-secondary'}
+                onClick={() => handleExamCreationModeChange(EXAM_CREATION_MODE_MANUAL)}
+              >
+                Create Exam Manually
+              </button>
+              <button
+                type="button"
+                className={examCreationMode === EXAM_CREATION_MODE_AUTO ? 'button' : 'button-secondary'}
+                onClick={() => handleExamCreationModeChange(EXAM_CREATION_MODE_AUTO)}
+              >
+                Auto Generate Exam
+              </button>
+            </div>
+          )}
 
           <div className="small" style={{ marginBottom: 12, color: '#475569' }}>
             Selected: <strong>{form.selectedQuestions.length}</strong> questions | Total Marks: <strong>{form.totalMarks}</strong>
@@ -711,19 +984,65 @@ export default function AdminExams() {
             onChange={(event) => updateForm({ subject: event.target.value })}
             style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }}
           >
-            <option value="Mixed">Mixed (Multiple Subjects)</option>
-            <option value="DSA">DSA (Data Structures & Algorithms)</option>
-            <option value="DBMS">DBMS (Database Management Systems)</option>
-            <option value="OS">OS (Operating Systems)</option>
-            <option value="CN">CN (Computer Networks)</option>
-            <option value="Aptitude">Aptitude</option>
-            <option value="Logical">Logical / Reasoning</option>
-            <option value="Verbal">Verbal / English</option>
+            {!isTeacher && <option value="Mixed">Mixed (Multiple Subjects)</option>}
+            {availableExamSubjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
           </select>
           {validationErrors.subject && <div className="small" style={{ color: '#dc2626', marginTop: 4 }}>{validationErrors.subject}</div>}
 
           <label style={{ marginTop: 8 }}>Description</label>
           <textarea value={form.description} onChange={(event) => updateForm({ description: event.target.value })} style={{ minHeight: '72px' }} />
+
+          {isTeacher && (
+            <>
+              <label style={{ marginTop: 8 }}>Exam Audience</label>
+              <div className="small" style={{ color: '#64748b', marginTop: 4, marginBottom: 8 }}>
+                Select at least one class or lab batch. Only those students will see this exam in their exam tab.
+              </div>
+
+              <div style={{ marginBottom: 8 }}>
+                <div className="small" style={{ color: '#334155', marginBottom: 6, fontWeight: 600 }}>Classes</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {teacherAssignedClasses.map((className) => {
+                    const isSelected = form.assignedClasses.includes(className);
+                    return (
+                      <button
+                        key={className}
+                        type="button"
+                        className={isSelected ? 'button' : 'button-secondary'}
+                        onClick={() => toggleAssignedClass(className)}
+                      >
+                        {className}
+                      </button>
+                    );
+                  })}
+                  {!teacherAssignedClasses.length && <div className="small" style={{ color: '#94a3b8' }}>No assigned classes available.</div>}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 8 }}>
+                <div className="small" style={{ color: '#334155', marginBottom: 6, fontWeight: 600 }}>Lab Batches</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {teacherAssignedLabBatches.map((assignment) => {
+                    const assignmentKey = buildLabBatchAssignmentKey(assignment);
+                    const isSelected = selectedLabBatchKeys.has(assignmentKey);
+                    return (
+                      <button
+                        key={assignmentKey}
+                        type="button"
+                        className={isSelected ? 'button' : 'button-secondary'}
+                        onClick={() => toggleAssignedLabBatch(assignment)}
+                      >
+                        {buildLabBatchAssignmentLabel(assignment)}
+                      </button>
+                    );
+                  })}
+                  {!teacherAssignedLabBatches.length && <div className="small" style={{ color: '#94a3b8' }}>No assigned lab batches available.</div>}
+                </div>
+              </div>
+
+              {validationErrors.audience && <div className="small" style={{ color: '#dc2626', marginTop: 4 }}>{validationErrors.audience}</div>}
+            </>
+          )}
 
           <label style={{ marginTop: 8 }}>Duration (minutes)</label>
           <input type="number" min="1" max="180" value={form.duration} onChange={(event) => updateForm({ duration: Number(event.target.value) })} />
@@ -748,49 +1067,56 @@ export default function AdminExams() {
           <input type="datetime-local" value={form.endDate} onChange={(event) => updateForm({ endDate: event.target.value })} />
           {validationErrors.endDate && <div className="small" style={{ color: '#dc2626', marginTop: 4 }}>{validationErrors.endDate}</div>}
 
-          <label style={{ marginTop: 8 }}>Questions</label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 8 }}>
-            <input placeholder="Search question text..." value={questionSearch} onChange={(event) => setQuestionSearch(event.target.value)} />
-            <select value={questionSubjectFilter} onChange={(event) => setQuestionSubjectFilter(event.target.value)}>
-              <option value={FILTER_ALL}>All Subjects</option>
-              {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
-            </select>
-            <select value={questionDifficultyFilter} onChange={(event) => setQuestionDifficultyFilter(event.target.value)}>
-              <option value={FILTER_ALL}>All Difficulties</option>
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-            </select>
-            <select value={questionTopicFilter} onChange={(event) => setQuestionTopicFilter(event.target.value)}>
-              <option value={FILTER_ALL}>All Topics</option>
-              {topicOptions.map((topic) => <option key={topic} value={topic}>{topic}</option>)}
-            </select>
-          </div>
+          {examCreationMode === EXAM_CREATION_MODE_MANUAL && (
+            <>
+              <label style={{ marginTop: 8 }}>{isTeacher ? 'Assigned Subject Library' : 'Questions'}</label>
+              {isTeacher && (
+                <div className="small" style={{ color: '#64748b', marginTop: 4, marginBottom: 8 }}>
+                  Use questions from your assigned subjects, including your own questions and shared subject library questions.
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 8 }}>
+                <input placeholder="Search question text..." value={questionSearch} onChange={(event) => setQuestionSearch(event.target.value)} />
+                <select value={questionSubjectFilter} onChange={(event) => setQuestionSubjectFilter(event.target.value)}>
+                  {!isTeacher && <option value={FILTER_ALL}>All Subjects</option>}
+                  {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                </select>
+                <select value={questionDifficultyFilter} onChange={(event) => setQuestionDifficultyFilter(event.target.value)}>
+                  <option value={FILTER_ALL}>All Difficulties</option>
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+                <select value={questionTopicFilter} onChange={(event) => setQuestionTopicFilter(event.target.value)}>
+                  <option value={FILTER_ALL}>All Topics</option>
+                  {topicOptions.map((topic) => <option key={topic} value={topic}>{topic}</option>)}
+                </select>
+              </div>
 
-          <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" onClick={selectAllVisible}>Select Visible</button>
-            <button type="button" onClick={clearSelection}>Clear Selection</button>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={async () => {
-                if (showInlineQuestionForm) {
-                  await discardInlineQuestionForm(form.subject);
-                  return;
-                }
+              <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" onClick={selectAllVisible}>Select Visible</button>
+                <button type="button" onClick={clearSelection}>Clear Selection</button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={async () => {
+                    if (showInlineQuestionForm) {
+                      await discardInlineQuestionForm(form.subject);
+                      return;
+                    }
 
-                setQuestionForm(buildInlineQuestionForm(form.subject));
-                setQuestionFormError(null);
-                setShowInlineQuestionForm(true);
-              }}
-            >
-              {showInlineQuestionForm ? 'Hide Quick Add' : 'Add Question Here'}
-            </button>
-            <div className="small" style={{ color: '#64748b' }}>Visible: <strong>{filteredQuestions.length}</strong> | Selected: <strong>{form.selectedQuestions.length}</strong> | Total Marks: <strong>{form.totalMarks}</strong></div>
-          </div>
-          {validationErrors.selectedQuestions && <div className="small" style={{ color: '#dc2626', marginBottom: 8 }}>{validationErrors.selectedQuestions}</div>}
+                    setQuestionForm(buildInlineQuestionForm(form.subject));
+                    setQuestionFormError(null);
+                    setShowInlineQuestionForm(true);
+                  }}
+                >
+                  {showInlineQuestionForm ? 'Hide Quick Add' : (isTeacher ? 'Add Question To Assigned Subject Library' : 'Add Question Here')}
+                </button>
+                <div className="small" style={{ color: '#64748b' }}>Visible: <strong>{filteredQuestions.length}</strong> | Selected: <strong>{form.selectedQuestions.length}</strong> | Total Marks: <strong>{form.totalMarks}</strong></div>
+              </div>
+              {validationErrors.selectedQuestions && <div className="small" style={{ color: '#dc2626', marginBottom: 8 }}>{validationErrors.selectedQuestions}</div>}
 
-          {showInlineQuestionForm && (
+              {showInlineQuestionForm && (
             <div style={{ marginBottom: 12, padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #dbeafe' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 <strong>Quick Add Custom Question</strong>
@@ -883,7 +1209,7 @@ export default function AdminExams() {
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Subject</label>
                   <select value={questionForm.subject} onChange={(event) => updateQuestionForm({ subject: event.target.value })}>
-                    {QUESTION_SUBJECT_OPTIONS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                    {(isTeacher ? teacherAssignedSubjects : QUESTION_SUBJECT_OPTIONS).map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                   </select>
                 </div>
 
@@ -935,44 +1261,87 @@ export default function AdminExams() {
                 </button>
               </div>
             </div>
+              )}
+
+              <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '4px' }}>
+                {filteredQuestions.map((question) => {
+                  const isSelected = selectedQuestionIds.has(question._id);
+                  return (
+                    <div
+                      key={question._id}
+                      onClick={() => setPreviewQuestionId(question._id)}
+                      style={{
+                        marginBottom: '8px',
+                        padding: '10px',
+                        borderRadius: '6px',
+                        border: isSelected ? '1px solid #93c5fd' : '1px solid #e5e7eb',
+                        background: isSelected ? '#eff6ff' : '#fff',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleQuestionSelect(question)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div className="small" title={question.questionText} style={{ fontWeight: 600, color: '#0f172a' }}>{question.questionText}</div>
+                          <div className="small" style={{ marginTop: 4, color: '#64748b' }}>
+                            Subject: {question.subject || 'General'} | Topic: {question.topic || 'General'} | Difficulty: {question.difficulty} | Marks: {question.marks || 1}
+                          </div>
+                          {question.questionImageUrl && <div className="small" style={{ marginTop: 4, color: '#0b5fff' }}>Image attached</div>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!filteredQuestions.length && <div className="small" style={{ color: '#64748b' }}>No questions match the current filters.</div>}
+              </div>
+            </>
           )}
 
-          <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '4px' }}>
-            {filteredQuestions.map((question) => {
-              const isSelected = selectedQuestionIds.has(question._id);
-              return (
-                <div
-                  key={question._id}
-                  onClick={() => setPreviewQuestionId(question._id)}
-                  style={{
-                    marginBottom: '8px',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    border: isSelected ? '1px solid #93c5fd' : '1px solid #e5e7eb',
-                    background: isSelected ? '#eff6ff' : '#fff',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          {examCreationMode === EXAM_CREATION_MODE_AUTO && !editId && (
+            <>
+              <label style={{ marginTop: 8 }}>Auto Generation Rules</label>
+              <div className="small" style={{ color: '#64748b', marginTop: 4, marginBottom: 10 }}>
+                Select the subject and how many random questions you want from each difficulty level. A count of 0 is allowed.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 12 }}>
+                {DIFFICULTY_OPTIONS.map((difficulty) => (
+                  <div key={`auto-config-${difficulty}`} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+                    <label style={{ marginTop: 0 }}>{difficulty} Questions</label>
                     <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleQuestionSelect(question)}
-                      onClick={(event) => event.stopPropagation()}
+                      type="number"
+                      min="0"
+                      value={autoConfig[difficulty]}
+                      onChange={(event) => updateAutoConfig(difficulty, event.target.value)}
                     />
-                    <div style={{ flex: 1 }}>
-                      <div className="small" title={question.questionText} style={{ fontWeight: 600, color: '#0f172a' }}>{question.questionText}</div>
-                      <div className="small" style={{ marginTop: 4, color: '#64748b' }}>
-                        Subject: {question.subject || 'General'} | Topic: {question.topic || 'General'} | Difficulty: {question.difficulty} | Marks: {question.marks || 1}
-                      </div>
-                      {question.questionImageUrl && <div className="small" style={{ marginTop: 4, color: '#0b5fff' }}>Image attached</div>}
+                    <div className="small" style={{ color: '#64748b', marginTop: 6 }}>
+                      Available: <strong>{autoGenerationStats[difficulty] || 0}</strong>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <button type="button" onClick={handleAutoGenerateQuestions}>Generate Random Questions</button>
+                <button type="button" className="button-secondary" onClick={() => {
+                  setAutoConfig(buildDefaultAutoConfig());
+                  clearSelection();
+                  setPreviewQuestionId(null);
+                }}>
+                  Reset Auto Rules
+                </button>
+                <div className="small" style={{ color: '#64748b' }}>
+                  Requested: <strong>{autoRequestedCount}</strong> | Generated: <strong>{form.selectedQuestions.length}</strong> | Total Marks: <strong>{form.totalMarks}</strong>
                 </div>
-              );
-            })}
-            {!filteredQuestions.length && <div className="small" style={{ color: '#64748b' }}>No questions match the current filters.</div>}
-          </div>
+              </div>
+              {validationErrors.selectedQuestions && <div className="small" style={{ color: '#dc2626', marginBottom: 8 }}>{validationErrors.selectedQuestions}</div>}
+            </>
+          )}
 
           {previewQuestion && (
             <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
@@ -997,7 +1366,7 @@ export default function AdminExams() {
 
           {selectedQuestionDetails.length > 0 && (
             <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <strong>Selected Questions</strong>
+              <strong>{examCreationMode === EXAM_CREATION_MODE_AUTO && !editId ? 'Auto Generated Questions' : 'Selected Questions'}</strong>
               <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
                 {selectedQuestionDetails.map((question) => (
                   <div key={question._id} className="small" style={{ color: '#334155' }}>
@@ -1025,7 +1394,7 @@ export default function AdminExams() {
 
           <div style={{ marginTop: 12 }}>
             <button type="submit" disabled={submitting || !isFormValid}>
-              {submitting ? (editId ? 'Updating...' : 'Creating...') : (editId ? 'Update' : 'Create') + ' Exam'}
+              {submitting ? (editId ? 'Updating...' : 'Creating...') : editId ? 'Update Exam' : examCreationMode === EXAM_CREATION_MODE_AUTO ? 'Create Auto Generated Exam' : 'Create Exam Manually'}
             </button>
           </div>
         </form>
@@ -1033,8 +1402,8 @@ export default function AdminExams() {
 
       <div className="card">
         {loading && <LoadingSpinner />}
-        {!loading && !adminGeneratedExams.length && <p className="text-muted text-center">No admin-created exams yet. <a href="#0" onClick={(event) => { event.preventDefault(); openCreateForm(); }}>Create one</a></p>}
-        {!loading && adminGeneratedExams.length > 0 && (
+        {!loading && !managedExams.length && <p className="text-muted text-center">No {isTeacher ? 'teacher-created' : 'admin-created'} exams yet. <a href="#0" onClick={(event) => { event.preventDefault(); openCreateForm(); }}>Create one</a></p>}
+        {!loading && managedExams.length > 0 && (
           <table>
             <thead>
               <tr>
@@ -1047,11 +1416,25 @@ export default function AdminExams() {
               </tr>
             </thead>
             <tbody>
-              {adminGeneratedExams.map((exam) => (
+              {managedExams.map((exam) => (
                 <tr key={exam._id}>
                   <td>
                     <strong>{exam.title}</strong>
                     {exam.description && <div className="text-small" style={{ marginTop: '4px', color: 'var(--text-muted)' }}>{exam.description.substring(0, 50)}...</div>}
+                    {isTeacher && (
+                      <div style={{ marginTop: '8px' }}>
+                        <div className="text-small" style={{ marginBottom: '6px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          Audience
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {buildTeacherAudienceBadges(exam).map((badge) => (
+                            <span key={badge.key} style={{ ...audienceBadgeBaseStyle, ...getAudienceBadgeStyle(badge.tone) }}>
+                              {badge.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </td>
                   <td>{exam.duration} min</td>
                   <td>{exam.totalMarks} <span className="text-small" style={{ color: 'var(--text-muted)' }}>/{exam.passingMarks}</span></td>

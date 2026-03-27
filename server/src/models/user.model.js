@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
-const { normalizeUserIdentity } = require('../utils/userIdentity');
+const { buildAdminId, buildEmployeeId, buildEnrollmentNo, normalizeRoleIdentifier, normalizeUserIdentity } = require('../utils/userIdentity');
+const { SUBJECT_OPTIONS } = require('../utils/subjects');
+
+const teacherLabBatchAssignmentSchema = new mongoose.Schema({
+  className: { type: String, trim: true, default: '' },
+  labBatchName: { type: String, trim: true, default: '' },
+}, { _id: false });
 
 const userSchema = new mongoose.Schema({
   firstName: { type: String, trim: true, default: '' },
@@ -7,8 +13,20 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   email: { type: String, required: true, lowercase: true, trim: true }, // Required for verification/password reset
   password: { type: String, required: true },
-  role: { type: String, enum: ['student', 'admin'], default: 'student' },
-  enrollmentNo: { type: String, required: true, unique: true, trim: true, uppercase: true, default: function() { return (`AUTO${Date.now().toString(36).toUpperCase().slice(-6)}${Math.random().toString(36).substring(2,6).toUpperCase()}`); } }, // PRIMARY KEY
+  role: { type: String, enum: ['student', 'teacher', 'admin'], default: 'student' },
+  adminId: { type: String, trim: true, uppercase: true, unique: true, sparse: true },
+  employeeId: { type: String, trim: true, uppercase: true, unique: true, sparse: true },
+  department: { type: String, trim: true, default: '' },
+  subjects: {
+    type: [String],
+    enum: SUBJECT_OPTIONS,
+    default: [],
+  },
+  batch: { type: String, trim: true, default: '' },
+  labBatch: { type: String, trim: true, default: '' },
+  assignedBatches: { type: [String], default: [] },
+  assignedLabBatches: { type: [teacherLabBatchAssignmentSchema], default: [] },
+  enrollmentNo: { type: String, required: true, unique: true, trim: true, uppercase: true, default: buildEnrollmentNo }, // PRIMARY KEY
   isActive: { type: Boolean, default: true },
   isVerified: { type: Boolean, default: false }, // SRS requirement: email verification
   verificationToken: { type: String, default: null }, // For email verification
@@ -27,6 +45,23 @@ userSchema.pre('validate', function syncNameFields(next) {
   this.name = normalizedIdentity.name;
   this.firstName = normalizedIdentity.firstName;
   this.lastName = normalizedIdentity.lastName;
+
+  if (!this.enrollmentNo) {
+    this.enrollmentNo = buildEnrollmentNo();
+  }
+
+  if (this.role === 'admin') {
+    this.adminId = normalizeRoleIdentifier(this.adminId) || buildAdminId();
+  } else {
+    this.adminId = undefined;
+  }
+
+  if (this.role === 'teacher') {
+    this.employeeId = normalizeRoleIdentifier(this.employeeId) || buildEmployeeId();
+  } else {
+    this.employeeId = undefined;
+  }
+
   next();
 });
 

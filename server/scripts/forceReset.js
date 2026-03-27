@@ -5,14 +5,20 @@ const User = require('../src/models/user.model');
 const bcrypt = require('bcryptjs');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exam_system';
+const adminEmail = process.env.FORCE_RESET_ADMIN_EMAIL;
+const studentEmail = process.env.FORCE_RESET_STUDENT_EMAIL;
+const password = process.env.FORCE_RESET_PASSWORD;
+
+if (!adminEmail || !studentEmail || !password) {
+    throw new Error('FORCE_RESET_ADMIN_EMAIL, FORCE_RESET_STUDENT_EMAIL, and FORCE_RESET_PASSWORD are required');
+}
 
 (async () => {
     try {
         await connectDB(MONGO_URI);
 
         // --- Admin Reset ---
-        const email = 'admin@example.com';
-        const password = 'ChangeMe123!';
+        const email = adminEmail;
 
         let user = await User.findOne({ email });
         if (!user) {
@@ -42,7 +48,6 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
         console.log('Admin Password updated successfully.');
 
         // --- Student Reset ---
-        const studentEmail = 'student@example.com';
         let student = await User.findOne({ email: studentEmail });
         if (!student) {
             console.log('Student user not found. Creating...');
@@ -55,6 +60,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
                 email: studentEmail,
                 password: hashed,
                 role: 'student',
+                batch: 'E2E-BATCH',
                 enrollmentNo: 'STUDENT001',
                 isVerified: true
             });
@@ -66,6 +72,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/ai_mcq_exa
             student.firstName = 'Student';
             student.lastName = 'User';
             student.password = hashed;
+            student.batch = student.batch || 'E2E-BATCH';
             student.isVerified = true;
             await student.save();
         }

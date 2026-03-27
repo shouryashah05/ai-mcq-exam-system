@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
+  getReportStudents,
   getStudentOverallReport,
   getStudentSubjectHistoryReport,
   getSubjectStudentsReport,
@@ -19,8 +20,8 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { fetchUsers } from '../services/userService';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { AuthContext } from '../context/AuthContext';
 import { downloadCsv } from '../utils/csvExport';
 import { downloadTablePdf } from '../utils/pdfExport';
 import { getDisplayName, getDisplayNameSlug } from '../utils/userDisplay';
@@ -29,6 +30,8 @@ const SUBJECT_OPTIONS = ['DBMS', 'OS', 'CN', 'DSA', 'Aptitude', 'Logical', 'Verb
 const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0f766e'];
 
 export default function AdminReports() {
+  const { user } = useContext(AuthContext);
+  const isTeacher = user?.role === 'teacher';
   const [reportType, setReportType] = useState('subject-students');
   const [users, setUsers] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -40,12 +43,26 @@ export default function AdminReports() {
   const [error, setError] = useState(null);
 
   const filters = useMemo(() => ({ startDate, endDate }), [startDate, endDate]);
+  const availableSubjects = useMemo(() => {
+    if (!isTeacher) {
+      return SUBJECT_OPTIONS;
+    }
+
+    const scopedSubjects = Array.isArray(user?.subjects) ? user.subjects.filter(Boolean) : [];
+    return scopedSubjects.length ? scopedSubjects : SUBJECT_OPTIONS;
+  }, [isTeacher, user]);
+
+  useEffect(() => {
+    if (!availableSubjects.includes(selectedSubject)) {
+      setSelectedSubject(availableSubjects[0] || SUBJECT_OPTIONS[0]);
+    }
+  }, [availableSubjects, selectedSubject]);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetchUsers();
-        const studentUsers = (res.users || []).filter(user => user.role !== 'admin');
+        const res = await getReportStudents();
+        const studentUsers = (res.students || []).filter(user => user.role === 'student');
         setUsers(studentUsers);
         if (studentUsers.length > 0) {
           setSelectedStudentId(studentUsers[0]._id);
@@ -528,17 +545,22 @@ export default function AdminReports() {
 
   return (
     <div className="container">
-      <div className="nav"><h2>Performance Reports</h2></div>
+      <div className="nav"><h2>{isTeacher ? 'Teacher Reports' : 'Performance Reports'}</h2></div>
 
       <div className="card">
         <h3>Report Filters</h3>
+        {isTeacher && (
+          <p className="text-muted" style={{ marginTop: 0 }}>
+            Report access is limited to your assigned subjects, batches, and the exams you manage.
+          </p>
+        )}
         <div className="report-filters-grid">
           <div className="report-filter-field">
             <label className="small">Report Type</label>
             <select value={reportType} onChange={e => handleReportTypeChange(e.target.value)}>
-              <option value="subject-students">Subject-wise Report: All Students</option>
-              <option value="student-subject">One Student: One Subject History</option>
-              <option value="student-overall">One Student: All Subjects</option>
+              <option value="subject-students">{isTeacher ? 'Assigned Subject Report: Visible Students' : 'Subject-wise Report: All Students'}</option>
+              <option value="student-subject">{isTeacher ? 'One Student: Assigned Subject History' : 'One Student: One Subject History'}</option>
+              <option value="student-overall">{isTeacher ? 'One Student: Visible Subjects' : 'One Student: All Subjects'}</option>
             </select>
           </div>
 
@@ -546,7 +568,7 @@ export default function AdminReports() {
             <div className="report-filter-field">
               <label className="small">Subject</label>
               <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}>
-                {SUBJECT_OPTIONS.map(subject => (
+                {availableSubjects.map(subject => (
                   <option key={subject} value={subject}>{subject}</option>
                 ))}
               </select>
@@ -591,7 +613,7 @@ export default function AdminReports() {
         </div>
         {selectedStudent && reportType !== 'subject-students' && (
           <p className="text-muted" style={{ marginBottom: 0 }}>
-            Current student: <strong>{getDisplayName(selectedStudent)}</strong>
+            {isTeacher ? 'Current visible student' : 'Current student'}: <strong>{getDisplayName(selectedStudent)}</strong>
           </p>
         )}
       </div>

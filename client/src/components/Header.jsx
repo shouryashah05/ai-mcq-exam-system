@@ -1,11 +1,18 @@
 import React, { useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { getHomeRouteForRole, isAdminRole, isTeacherRole } from '../utils/roleRouting';
 
 export default function Header() {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const primaryIdentifier = user?.role === 'admin'
+    ? (user.adminId || user.email)
+    : user?.role === 'teacher'
+      ? (user.employeeId || user.enrollmentNo || user.email)
+      : (user?.enrollmentNo || user?.email);
 
   const handleLogout = () => {
     logout();
@@ -13,14 +20,15 @@ export default function Header() {
 
   if (!user) return null;
 
-  const isAdmin = user.role === 'admin';
+  const isAdmin = isAdminRole(user.role);
+  const isTeacher = isTeacherRole(user.role);
   const isActive = (path) => location.pathname === path;
 
   return (
     <header style={styles.header}>
       <div style={styles.container}>
         {/* Logo/Title */}
-        <div style={styles.logo} onClick={() => navigate(isAdmin ? '/admin' : '/dashboard')}>
+        <div style={styles.logo} onClick={() => navigate(getHomeRouteForRole(user.role))}>
           <h1 style={styles.title}>📝 AI MCQ Exam</h1>
         </div>
 
@@ -30,16 +38,28 @@ export default function Header() {
             <>
               <NavLink text="Dashboard" path="/admin/dashboard" isActive={isActive('/admin/dashboard')} onClick={() => navigate('/admin/dashboard')} />
               <NavLink text="Users" path="/admin/users" isActive={isActive('/admin/users')} onClick={() => navigate('/admin/users')} />
+              <NavLink text="Classes" path="/admin/classes" isActive={isActive('/admin/classes')} onClick={() => navigate('/admin/classes')} />
               <NavLink text="Questions" path="/admin/questions" isActive={isActive('/admin/questions')} onClick={() => navigate('/admin/questions')} />
               <NavLink text="Exams" path="/admin/exams" isActive={isActive('/admin/exams')} onClick={() => navigate('/admin/exams')} />
               <NavLink text="Reports" path="/admin/reports" isActive={isActive('/admin/reports')} onClick={() => navigate('/admin/reports')} />
               <NavLink text="Profile" path="/profile" isActive={isActive('/profile')} onClick={() => navigate('/profile')} />
             </>
           )}
-          {!isAdmin && (
+          {isTeacher && (
+            <>
+              <NavLink text="Dashboard" path="/teacher/dashboard" isActive={isActive('/teacher/dashboard')} onClick={() => navigate('/teacher/dashboard')} />
+              <NavLink text="Questions" path="/teacher/questions" isActive={isActive('/teacher/questions')} onClick={() => navigate('/teacher/questions')} />
+              <NavLink text="Exams" path="/teacher/exams" isActive={isActive('/teacher/exams')} onClick={() => navigate('/teacher/exams')} />
+              <NavLink text="Reports" path="/teacher/reports" isActive={isActive('/teacher/reports')} onClick={() => navigate('/teacher/reports')} />
+              <NavLink text="Analytics" path="/teacher/analytics" isActive={isActive('/teacher/analytics')} onClick={() => navigate('/teacher/analytics')} />
+              <NavLink text="Profile" path="/profile" isActive={isActive('/profile')} onClick={() => navigate('/profile')} />
+            </>
+          )}
+          {!isAdmin && !isTeacher && (
             <>
               <NavLink text="Dashboard" path="/dashboard" isActive={isActive('/dashboard')} onClick={() => navigate('/dashboard')} />
               <NavLink text="Exams" path="/exams" isActive={isActive('/exams')} onClick={() => navigate('/exams')} />
+              <NavLink text="History" path="/history" isActive={isActive('/history')} onClick={() => navigate('/history')} />
               <NavLink text="Analytics" path="/analytics" isActive={isActive('/analytics')} onClick={() => navigate('/analytics')} />
               <NavLink text="Profile" path="/profile" isActive={isActive('/profile')} onClick={() => navigate('/profile')} />
             </>
@@ -48,7 +68,7 @@ export default function Header() {
 
         {/* User Info & Logout */}
         <div style={styles.userSection}>
-          <span style={styles.userEmail}>{user.enrollmentNo}</span>
+          <span style={styles.userEmail}>{primaryIdentifier}</span>
           <span style={styles.userRole}>{user.role}</span>
           <button style={styles.logoutBtn} onClick={handleLogout}>Logout</button>
         </div>

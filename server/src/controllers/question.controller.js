@@ -1,5 +1,6 @@
 const Question = require('../models/question.model');
 const { deleteQuestionImageByPublicId } = require('../services/cloudinary.service');
+const { ensureResourceOwnerOrAdmin, getManagedSubjects, isTeacher } = require('../utils/permissions');
 
 const normalizeOptions = (options) => (
   Array.isArray(options)
@@ -91,11 +92,18 @@ const createQuestion = async (req, res, next) => {
 
 const getQuestions = async (req, res, next) => {
   try {
-    const { category, difficulty } = req.query;
+    const { category, difficulty, mine, scope } = req.query;
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
-    const questions = await Question.find(filter).populate('createdBy', 'name email');
+    if (isTeacher(req.user)) {
+      if (mine === 'true' || scope === 'mine') {
+        filter.createdBy = req.user._id;
+      } else if (scope === 'assigned') {
+        filter.subject = { $in: getManagedSubjects(req.user) };
+      }
+    }
+    const questions = await Question.find(filter).populate('createdBy', 'name email firstName lastName');
     res.json({ questions });
   } catch (err) {
     next(err);
@@ -145,7 +153,7 @@ const bulkCreateQuestions = async (req, res, next) => {
   }
 };
 
-const getquestionById = async (req, res, next) => {
+const getQuestionById = async (req, res, next) => {
   try {
     const { id } = req.params;
     const question = await Question.findById(id).populate('createdBy', 'name email');
@@ -167,6 +175,8 @@ const updateQuestion = async (req, res, next) => {
       res.status(404);
       throw new Error('Question not found');
     }
+
+    ensureResourceOwnerOrAdmin(req.user, question);
 
     const updates = buildQuestionData(req.body);
     const nextOptions = updates.options !== undefined ? updates.options : question.options;
@@ -197,6 +207,8 @@ const deleteQuestion = async (req, res, next) => {
       throw new Error('Question not found');
     }
 
+    ensureResourceOwnerOrAdmin(req.user, question);
+
     await Question.findByIdAndDelete(id);
     await cleanupQuestionImageAsset(question.questionImagePublicId);
 
@@ -206,4 +218,4 @@ const deleteQuestion = async (req, res, next) => {
   }
 };
 
-module.exports = { createQuestion, getQuestions, getquestionById, updateQuestion, deleteQuestion, bulkCreateQuestions };
+module.exports = { createQuestion, getQuestions, getQuestionById, updateQuestion, deleteQuestion, bulkCreateQuestions };

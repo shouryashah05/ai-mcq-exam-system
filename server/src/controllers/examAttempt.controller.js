@@ -1,7 +1,14 @@
 const ExamAttempt = require('../models/examAttempt.model');
 const Exam = require('../models/exam.model');
 const Question = require('../models/question.model');
+const AnalyticsJob = require('../models/analyticsJob.model');
 const PerformanceAnalyticsController = require('./performanceAnalytics.controller');
+const { isExamVisibleToStudent } = require('../utils/examAudience');
+const {
+  buildShuffledOptionData,
+  serializeAttemptForClient,
+  shuffleArray,
+} = require('../utils/questionPresentation');
 
 const evaluateAnswers = async (exam, answers) => {
   let score = 0;
@@ -26,9 +33,9 @@ const evaluateAnswers = async (exam, answers) => {
       evaluated.push({
         questionId: answer.questionId,
         questionText: question.questionText,
-        options: question.options,
+        options: Array.isArray(answer.shuffledOptions) && answer.shuffledOptions.length ? answer.shuffledOptions : question.options,
         selectedOption: null,
-        correctAnswer: question.correctAnswer,
+        correctAnswer: typeof answer.correctOptionIndex === 'number' ? answer.correctOptionIndex : question.correctAnswer,
         isCorrect: false,
         marks: question.marks,
         negativeMarks: question.negativeMarks,
@@ -43,7 +50,8 @@ const evaluateAnswers = async (exam, answers) => {
       continue;
     }
 
-    isCorrect = answer.selectedOption === question.correctAnswer;
+    const correctAnswerIndex = typeof answer.correctOptionIndex === 'number' ? answer.correctOptionIndex : question.correctAnswer;
+    isCorrect = answer.selectedOption === correctAnswerIndex;
 
     if (isCorrect) {
       marksAwarded = question.marks;
@@ -61,9 +69,9 @@ const evaluateAnswers = async (exam, answers) => {
     evaluated.push({
       questionId: answer.questionId,
       questionText: question.questionText,
-      options: question.options,
+      options: Array.isArray(answer.shuffledOptions) && answer.shuffledOptions.length ? answer.shuffledOptions : question.options,
       selectedOption: answer.selectedOption,
-      correctAnswer: question.correctAnswer,
+      correctAnswer: correctAnswerIndex,
       isCorrect,
       marks: question.marks,
       negativeMarks: question.negativeMarks,
@@ -89,23 +97,23 @@ const evaluateAnswers = async (exam, answers) => {
   };
 };
 
-/**
- * Utility function to shuffle an array (Fisher-Yates algorithm)
- */
-const shuffleArray = (array) => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-};
-
 const startExam = async (req, res, next) => {
   try {
     const { examId } = req.body;
-    const exam = await Exam.findById(examId).populate('questions');
+    const exam = await Exam.findById(examId)
+      .populate('questions')
+      .populate('createdBy', 'role');
     if (!exam) {
+      res.status(404);
+      throw new Error('Exam not found');
+    }
+
+    if (exam.examType === 'adaptive' || exam.createdBy?.role === 'student') {
+      res.status(400);
+      throw new Error('Adaptive practice tests must be started from the adaptive practice flow');
+    }
+
+    if (req.user?.role === 'student' && !isExamVisibleToStudent(exam, req.user)) {
       res.status(404);
       throw new Error('Exam not found');
     }
@@ -122,18 +130,26 @@ const startExam = async (req, res, next) => {
       user: req.user._id,
       exam: examId,
       status: 'in-progress'
-    });
+    })
+      .populate('exam')
+      .populate({
+        path: 'answers.questionId',
+        select: 'questionText options category difficulty marks subject topic questionImageUrl'
+      });
     if (existing) {
-      return res.json({ attempt: existing });
+      return res.json({ attempt: serializeAttemptForClient(existing) });
     }
 
     // Randomize questions to prevent copying (SRS requirement: NFR-USR-03)
     const shuffledQuestions = shuffleArray(exam.questions);
 
     // Prepare answers array with shuffled questions
-    const answers = shuffledQuestions.map(q => ({
-      questionId: q._id,
-      selectedOption: null
+    const answers = shuffledQuestions.map((question) => ({
+      questionId: question._id,
+      selectedOption: null,
+      ...buildShuffledOptionData(question),
+      subject: question.subject,
+      topic: question.topic,
     }));
 
     const attempt = await ExamAttempt.create({
@@ -150,7 +166,7 @@ const startExam = async (req, res, next) => {
         select: 'questionText options category difficulty marks subject topic questionImageUrl'
       });
 
-    res.status(201).json({ attempt: populatedAttempt });
+    res.status(201).json({ attempt: serializeAttemptForClient(populatedAttempt) });
   } catch (err) {
     next(err);
   }
@@ -160,12 +176,6 @@ const saveAnswer = async (req, res, next) => {
   try {
     const { attemptId } = req.params;
     const { questionId, selectedOption, timeSpentSeconds } = req.body;
-
-    const attempt = await ExamAttempt.findById(attemptId);
-    if (!attempt || attempt.user.toString() !== req.user._id.toString()) {
-      res.status(403);
-      throw new Error('Unauthorized');
-    }
 
     // Normalize incoming questionId which may be an object (populated) or a string
     let qid = questionId;
@@ -179,33 +189,92 @@ const saveAnswer = async (req, res, next) => {
       qid = String(questionId);
     }
 
-    const answerIdx = attempt.answers.findIndex(a => String(a.questionId) === qid);
-    const question = await Question.findById(qid).select('options');
-    if (!question) {
+    const attemptAnswer = await ExamAttempt.findOne(
+      {
+        _id: attemptId,
+        user: req.user._id,
+        status: 'in-progress',
+        'answers.questionId': qid,
+      },
+      { 'answers.$': 1 },
+    );
+
+    if (!attemptAnswer?.answers?.length) {
       res.status(404);
-      throw new Error('Question not found');
+      throw new Error('Question not found in this attempt');
+    }
+
+    const answerEntry = attemptAnswer.answers[0];
+    const optionCount = Array.isArray(answerEntry.shuffledOptions) && answerEntry.shuffledOptions.length
+      ? answerEntry.shuffledOptions.length
+      : 0;
+
+    const normalizedTimeSpentSeconds = timeSpentSeconds === undefined ? 0 : Number(timeSpentSeconds);
+    if (!Number.isFinite(normalizedTimeSpentSeconds) || normalizedTimeSpentSeconds < 0) {
+      res.status(400);
+      throw new Error('timeSpentSeconds must be a non-negative number');
     }
 
     let normalizedSelectedOption = selectedOption;
     if (selectedOption !== null && selectedOption !== undefined) {
       normalizedSelectedOption = Number(selectedOption);
-      if (!Number.isInteger(normalizedSelectedOption) || normalizedSelectedOption < 0 || normalizedSelectedOption >= question.options.length) {
+      if (!Number.isInteger(normalizedSelectedOption) || normalizedSelectedOption < 0 || normalizedSelectedOption >= optionCount) {
         res.status(400);
-        throw new Error(`Selected option must be between 0 and ${question.options.length - 1}`);
+        throw new Error(`Selected option must be between 0 and ${optionCount - 1}`);
       }
     }
 
-    if (answerIdx >= 0) {
-      attempt.answers[answerIdx].selectedOption = normalizedSelectedOption;
-      if (timeSpentSeconds !== undefined) {
-        attempt.answers[answerIdx].timeSpentSeconds = (attempt.answers[answerIdx].timeSpentSeconds || 0) + timeSpentSeconds;
-      }
-    } else {
-      attempt.answers.push({ questionId, selectedOption: normalizedSelectedOption, timeSpentSeconds: timeSpentSeconds || 0 });
+    const attemptQuery = {
+      _id: attemptId,
+      user: req.user._id,
+      status: 'in-progress',
+    };
+
+    let attempt = await ExamAttempt.findOneAndUpdate(
+      {
+        ...attemptQuery,
+        'answers.questionId': qid,
+      },
+      {
+        $set: {
+          'answers.$.selectedOption': normalizedSelectedOption,
+        },
+        ...(normalizedTimeSpentSeconds > 0 ? { $inc: { 'answers.$.timeSpentSeconds': normalizedTimeSpentSeconds } } : {}),
+      },
+      { new: true },
+    );
+
+    if (!attempt) {
+      attempt = await ExamAttempt.findOneAndUpdate(
+        {
+          ...attemptQuery,
+          'answers.questionId': { $ne: qid },
+        },
+        {
+          $push: {
+            answers: {
+              questionId: qid,
+              selectedOption: normalizedSelectedOption,
+              timeSpentSeconds: normalizedTimeSpentSeconds,
+            },
+          },
+        },
+        { new: true },
+      );
     }
 
-    await attempt.save();
-    res.json({ attempt });
+    if (!attempt) {
+      const existingAttempt = await ExamAttempt.findById(attemptId).select('user status');
+      if (!existingAttempt || existingAttempt.user.toString() !== req.user._id.toString()) {
+        res.status(403);
+        throw new Error('Unauthorized');
+      }
+
+      res.status(400);
+      throw new Error('Exam attempt is no longer accepting answers');
+    }
+
+    res.json({ attempt: serializeAttemptForClient(attempt) });
   } catch (err) {
     next(err);
   }
@@ -226,46 +295,68 @@ const submitExam = async (req, res, next) => {
       throw new Error('Exam already submitted');
     }
 
-    const { score, evaluated, stats } = await evaluateAnswers(attempt.exam, attempt.answers);
+    const result = await evaluateAnswers(attempt.exam, attempt.answers);
 
-    // Update attempt with evaluated answers (containing subject, topic, isCorrect, etc.)
-    // We Map 'evaluated' back to the 'answers' structure
-    attempt.answers = evaluated.map(e => ({
-      questionId: e.questionId,
-      selectedOption: e.selectedOption,
-      isCorrect: e.isCorrect,
-      marksAwarded: e.marksAwarded,
-      timeSpentSeconds: e.timeSpentSeconds,
-      subject: e.subject,
-      topic: e.topic
-    }));
+    const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+      {
+        _id: attemptId,
+        user: req.user._id,
+        status: 'in-progress',
+      },
+      {
+        $set: {
+          answers: result.evaluated.map((entry) => ({
+            questionId: entry.questionId,
+            selectedOption: entry.selectedOption,
+            isCorrect: entry.isCorrect,
+            marksAwarded: entry.marksAwarded,
+            timeSpentSeconds: entry.timeSpentSeconds,
+            subject: entry.subject,
+            topic: entry.topic,
+          })),
+          score: result.score,
+          status: 'completed',
+          endTime: new Date(),
+        },
+      },
+      { new: true },
+    ).populate('exam');
 
-    attempt.score = score;
-    attempt.status = 'completed';
-    attempt.endTime = new Date();
-    await attempt.save();
-
-    // Trigger asynchronous performance update: enqueue a job so processing happens in background
-    const AnalyticsJob = require('../models/analyticsJob.model');
-    try {
-      await AnalyticsJob.create({ userId: req.user._id, attemptId: attempt._id, status: 'pending' });
-    } catch (e) {
-      console.error('Failed to enqueue analytics job:', e.message);
-      // fallback: run synchronously to avoid losing analytics update
-      await PerformanceAnalyticsController.updatePerformanceMetrics(req.user._id, attempt._id);
+    if (!updatedAttempt) {
+      res.status(400);
+      throw new Error('Exam already submitted');
     }
 
-    const passed = score >= attempt.exam.passingMarks;
+    await AnalyticsJob.findOneAndUpdate(
+      { attemptId: updatedAttempt._id },
+      {
+        $setOnInsert: {
+          userId: req.user._id,
+          attemptId: updatedAttempt._id,
+          attempts: 0,
+          maxAttempts: 3,
+          status: 'pending',
+          availableAt: new Date(),
+          error: '',
+        },
+        $set: {
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true, new: true },
+    );
+
+    const passed = result.score >= updatedAttempt.exam.passingMarks;
 
     res.json({
-      attempt,
+      attempt: serializeAttemptForClient(updatedAttempt),
       result: {
-        score,
-        totalMarks: attempt.exam.totalMarks,
-        percentage: ((score / attempt.exam.totalMarks) * 100).toFixed(2),
+        score: result.score,
+        totalMarks: updatedAttempt.exam.totalMarks,
+        percentage: ((result.score / updatedAttempt.exam.totalMarks) * 100).toFixed(2),
         passed,
-        evaluated,
-        stats // Include detailed statistics
+        evaluated: result.evaluated,
+        stats: result.stats
       }
     });
   } catch (err) {
@@ -291,10 +382,10 @@ const getAttempt = async (req, res, next) => {
 
     if (attempt.status === 'completed') {
       const { evaluated } = await evaluateAnswers(attempt.exam, attempt.answers);
-      return res.json({ attempt, evaluated });
+      return res.json({ attempt: serializeAttemptForClient(attempt), evaluated });
     }
 
-    res.json({ attempt });
+    res.json({ attempt: serializeAttemptForClient(attempt) });
   } catch (err) {
     next(err);
   }
@@ -303,7 +394,7 @@ const getAttempt = async (req, res, next) => {
 const getAttemptHistory = async (req, res, next) => {
   try {
     const attempts = await ExamAttempt.find({ user: req.user._id, status: 'completed' })
-      .populate('exam', 'title duration totalMarks')
+      .populate('exam', 'title subject duration totalMarks passingMarks')
       .sort({ endTime: -1 });
 
     res.json({ attempts });

@@ -1,5 +1,5 @@
 const User = require('../models/user.model');
-const { generateToken, sendVerificationEmail, sendPasswordResetEmail, sendAccountSetupEmail } = require('../services/email.service');
+const { generateToken, queueVerificationEmail, queuePasswordResetEmail, queueAccountSetupEmail } = require('../services/email.service');
 const { buildFullName } = require('../utils/userIdentity');
 
 /**
@@ -62,7 +62,7 @@ const resendVerificationEmail = async (req, res, next) => {
         await user.save();
 
         // Send verification email
-        await sendVerificationEmail(user.email, token, user.name);
+        await queueVerificationEmail(user.email, token, user.name);
 
         res.json({ message: 'Verification email sent successfully' });
     } catch (err) {
@@ -105,9 +105,9 @@ const requestPasswordReset = async (req, res, next) => {
         }
 
         if (user.isVerified) {
-            await sendPasswordResetEmail(user.email, token, displayName);
+            await queuePasswordResetEmail(user.email, token, displayName);
         } else {
-            await sendAccountSetupEmail(user.email, token, displayName);
+            await queueAccountSetupEmail(user.email, token, displayName);
         }
 
         res.json({ message: 'If the email exists, a password reset link has been sent' });

@@ -14,6 +14,8 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 const StudentAnalytics = lazy(() => import('./pages/StudentAnalytics'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
+const AdminClasses = lazy(() => import('./pages/AdminClasses'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
 const AdminQuestions = lazy(() => import('./pages/AdminQuestions'));
 const AdminExams = lazy(() => import('./pages/AdminExams'));
@@ -25,6 +27,7 @@ const Profile = lazy(() => import('./pages/Profile'));
 const AdaptiveTest = lazy(() => import('./pages/AdaptiveTest'));
 const TestAnalysis = lazy(() => import('./pages/TestAnalysis'));
 const ExamsPage = lazy(() => import('./pages/ExamsPage'));
+const ExamHistory = lazy(() => import('./pages/ExamHistory'));
 
 function PageFallback() {
   return (
@@ -76,6 +79,7 @@ export default function App() {
             <Route path="/dashboard" element={renderRoute(<ProtectedRoute><StudentDashboard /></ProtectedRoute>)} />
             <Route path="/exams" element={renderRoute(<ProtectedRoute><ExamsPage /></ProtectedRoute>)} />
             <Route path="/analytics" element={renderRoute(<ProtectedRoute><StudentAnalytics /></ProtectedRoute>)} />
+            <Route path="/history" element={renderRoute(<ProtectedRoute><ExamHistory /></ProtectedRoute>)} />
             <Route path="/profile" element={renderRoute(<ProtectedRoute><Profile /></ProtectedRoute>)} />
             <Route path="/exam/:examId" element={renderRoute(<ProtectedRoute><ExamView /></ProtectedRoute>)} />
             <Route path="/result/:attemptId" element={renderRoute(<ProtectedRoute><ExamResultPage /></ProtectedRoute>)} />
@@ -85,10 +89,18 @@ export default function App() {
             <Route path="/admin" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminDashboard /></ProtectedRoute>)} />
             <Route path="/admin/dashboard" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminDashboard /></ProtectedRoute>)} />
             <Route path="/admin/users" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminUsers /></ProtectedRoute>)} />
+            <Route path="/admin/classes" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminClasses /></ProtectedRoute>)} />
             <Route path="/admin/questions" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminQuestions /></ProtectedRoute>)} />
             <Route path="/admin/exams" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminExams /></ProtectedRoute>)} />
             <Route path="/admin/reports" element={renderRoute(<ProtectedRoute roles={["admin"]}><AdminReports /></ProtectedRoute>)} />
             <Route path="/admin/analytics" element={renderRoute(<ProtectedRoute roles={["admin"]}><BatchAnalytics /></ProtectedRoute>)} />
+
+            <Route path="/teacher" element={renderRoute(<ProtectedRoute roles={["teacher"]}><TeacherDashboard /></ProtectedRoute>)} />
+            <Route path="/teacher/dashboard" element={renderRoute(<ProtectedRoute roles={["teacher"]}><TeacherDashboard /></ProtectedRoute>)} />
+            <Route path="/teacher/questions" element={renderRoute(<ProtectedRoute roles={["teacher"]}><AdminQuestions /></ProtectedRoute>)} />
+            <Route path="/teacher/exams" element={renderRoute(<ProtectedRoute roles={["teacher"]}><AdminExams /></ProtectedRoute>)} />
+            <Route path="/teacher/reports" element={renderRoute(<ProtectedRoute roles={["teacher"]}><AdminReports /></ProtectedRoute>)} />
+            <Route path="/teacher/analytics" element={renderRoute(<ProtectedRoute roles={["teacher"]}><BatchAnalytics /></ProtectedRoute>)} />
 
             <Route path="*" element={<div style={{ padding: 24 }}>404 - Not Found</div>} />
           </Routes>

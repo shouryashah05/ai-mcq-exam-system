@@ -7,7 +7,14 @@ from logic.clustering import cluster_student
 from logic.trend_analysis import analyze_trend
 
 app = Flask(__name__)
-CORS(app)
+
+
+def parse_allowed_origins():
+    raw_value = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')
+    return [origin.strip() for origin in raw_value.split(',') if origin.strip()]
+
+
+CORS(app, resources={r"/*": {"origins": parse_allowed_origins()}})
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -17,6 +24,8 @@ def health():
 def analyze_performance():
     try:
         data = request.json
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid JSON body."}), 400
         # Expected Input:
         # {
         #   "recentScores": [80, 85, 90, ...], 
@@ -67,6 +76,8 @@ def analyze_performance():
 def readiness_indicators():
     try:
         data = request.json
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid JSON body."}), 400
         # Expected Input:
         # { "topicAccuracy": {"DBMS": 60, "DSA": 80, ...} }
         
@@ -113,5 +124,5 @@ if __name__ == '__main__':
     app.run(
         host=os.environ.get('HOST', '127.0.0.1'),
         port=int(os.environ.get('PORT', 5001)),
-        debug=os.environ.get('FLASK_DEBUG', 'true').lower() == 'true'
+        debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
     )

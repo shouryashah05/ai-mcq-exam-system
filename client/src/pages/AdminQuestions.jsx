@@ -1,10 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import { createQuestion, fetchQuestions, updateQuestion, deleteQuestion, bulkCreateQuestions, uploadQuestionImage, deleteQuestionImage } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SymbolPicker from '../components/SymbolPicker';
 import { showToast } from '../utils/appEvents';
+import { AuthContext } from '../context/AuthContext';
 
 const MIN_OPTIONS = 2;
+const TEACHER_VIEW_OPTIONS = {
+  MINE: 'mine',
+  ASSIGNED: 'assigned'
+};
 
 const createEmptyForm = () => ({
   questionText: '',
@@ -85,6 +90,9 @@ const extractOptionsFromRow = (row) => {
 };
 
 export default function AdminQuestions() {
+  const { user } = useContext(AuthContext);
+  const isTeacher = user?.role === 'teacher';
+  const [teacherView, setTeacherView] = useState(TEACHER_VIEW_OPTIONS.MINE);
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -101,18 +109,30 @@ export default function AdminQuestions() {
 
   const [form, setForm] = useState(createEmptyForm());
 
+  const isOwnedByCurrentUser = (question) => {
+    const ownerId = typeof question.createdBy === 'object'
+      ? question.createdBy?._id || question.createdBy?.id
+      : question.createdBy;
+
+    return String(ownerId || '') === String(user?._id || user?.id || '');
+  };
+
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchQuestions();
+      const res = await fetchQuestions(
+        isTeacher
+          ? { scope: teacherView }
+          : {}
+      );
       setQuestions(res.questions || []);
     } catch (err) {
       setError(err?.response?.data?.message || err.message);
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [isTeacher, teacherView]);
 
   const downloadSampleCSV = () => {
     const sampleData = [
@@ -423,7 +443,13 @@ export default function AdminQuestions() {
   return (
     <div className="container">
       <div className="nav">
-        <h2>Manage Questions</h2>
+        <h2>
+          {isTeacher
+            ? teacherView === TEACHER_VIEW_OPTIONS.ASSIGNED
+              ? 'Assigned Subject Question Library'
+              : 'Manage My Questions'
+            : 'Manage Questions'}
+        </h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={async () => {
             if (showForm) {
@@ -590,22 +616,61 @@ export default function AdminQuestions() {
       )}
 
       <div className="card">
+        {isTeacher && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div>
+              <strong style={{ display: 'block' }}>{teacherView === TEACHER_VIEW_OPTIONS.MINE ? 'My Questions' : 'Assigned Subject Library'}</strong>
+              <div className="text-small" style={{ color: 'var(--text-muted)' }}>
+                {teacherView === TEACHER_VIEW_OPTIONS.MINE
+                  ? 'You can edit and delete only the questions you created.'
+                  : 'Use questions from your assigned subjects, including your own questions and shared subject library questions.'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className={teacherView === TEACHER_VIEW_OPTIONS.MINE ? '' : 'button-secondary'}
+                onClick={() => setTeacherView(TEACHER_VIEW_OPTIONS.MINE)}
+              >
+                My Questions
+              </button>
+              <button
+                type="button"
+                className={teacherView === TEACHER_VIEW_OPTIONS.ASSIGNED ? '' : 'button-secondary'}
+                onClick={() => setTeacherView(TEACHER_VIEW_OPTIONS.ASSIGNED)}
+              >
+                Assigned Subject Library
+              </button>
+            </div>
+          </div>
+        )}
         {loading && <LoadingSpinner />}
-        {!loading && !questions.length && <p className="text-muted text-center">No questions yet. <a href="#0" onClick={() => setShowForm(true)}>Create one</a></p>}
+        {!loading && !questions.length && (
+          <p className="text-muted text-center">
+            {isTeacher && teacherView === TEACHER_VIEW_OPTIONS.ASSIGNED
+              ? 'No questions are available yet in your assigned subjects.'
+              : <>No questions yet. <a href="#0" onClick={() => setShowForm(true)}>Create one</a></>}
+          </p>
+        )}
         {!loading && questions.length > 0 && (
           <table>
             <thead>
               <tr>
                 <th>Question</th>
+                {isTeacher && <th>Subject</th>}
                 <th>Category</th>
                 <th>Difficulty</th>
                 <th>Marks</th>
                 <th>Correct Answer</th>
+                {isTeacher && <th>Access</th>}
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {questions.map(q => (
+              {questions.map(q => {
+                const isOwner = isOwnedByCurrentUser(q);
+
+                return (
                 <tr key={q._id}>
                   <td>
                     <strong>{q.questionText.substring(0, 60)}...</strong>
@@ -613,6 +678,7 @@ export default function AdminQuestions() {
                     {q.explanation && <div className="text-small" style={{ marginTop: '4px', color: 'var(--text-muted)' }}>Explanation: {q.explanation.substring(0, 40)}...</div>}
                     <div className="text-small" style={{ marginTop: '4px', color: 'var(--text-muted)' }}>{q.options.length} options</div>
                   </td>
+                  {isTeacher && <td><span className="badge badge-info">{q.subject || 'General'}</span></td>}
                   <td><span className="badge badge-info">{q.category}</span></td>
                   <td>
                     <span className={`badge badge-${q.difficulty === 'Easy' ? 'success' : q.difficulty === 'Medium' ? 'warning' : 'danger'}`}>
@@ -621,12 +687,31 @@ export default function AdminQuestions() {
                   </td>
                   <td>{q.marks}</td>
                   <td><strong style={{ color: 'var(--success)' }}>Option {String.fromCharCode(65 + q.correctAnswer)}</strong></td>
+                  {isTeacher && (
+                    <td>
+                      <div className="text-small" style={{ color: isOwner ? 'var(--success)' : 'var(--text-muted)' }}>
+                        {isOwner ? 'Owner access' : 'Read-only'}
+                      </div>
+                      {q.createdBy?.name && (
+                        <div className="text-small" style={{ color: 'var(--text-muted)' }}>
+                          Created by {q.createdBy.name}
+                        </div>
+                      )}
+                    </td>
+                  )}
                   <td>
-                    <button className="button-sm" onClick={() => handleEdit(q)}>Edit</button>
-                    <button className="button-sm button-danger" onClick={() => handleDelete(q._id)} style={{ marginLeft: '4px' }}>Delete</button>
+                    {(!isTeacher || isOwner) ? (
+                      <>
+                        <button className="button-sm" onClick={() => handleEdit(q)}>Edit</button>
+                        <button className="button-sm button-danger" onClick={() => handleDelete(q._id)} style={{ marginLeft: '4px' }}>Delete</button>
+                      </>
+                    ) : (
+                      <span className="text-small" style={{ color: 'var(--text-muted)' }}>No write access</span>
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
     getBatchOverview,
     getSubjectPerformance,
@@ -9,16 +9,27 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     PieChart, Pie, Cell
 } from 'recharts';
+import { AuthContext } from '../../context/AuthContext';
 
 const COLORS = ['#e03131', '#f08c00', '#2b8a3e', '#1098ad'];
 
 export default function BatchAnalytics() {
+    const { user } = useContext(AuthContext);
     const [overview, setOverview] = useState(null);
     const [subjectData, setSubjectData] = useState([]);
     const [heatmapData, setHeatmapData] = useState([]);
     const [readinessData, setReadinessData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedSubject, setSelectedSubject] = useState('');
+    const isTeacher = user?.role === 'teacher';
+    const pageTitle = isTeacher ? 'Assigned Batch Analytics' : 'Batch Performance Analytics';
+    const pageSubtitle = isTeacher
+        ? `Scoped to your assigned batches${Array.isArray(user?.assignedBatches) && user.assignedBatches.length ? `: ${user.assignedBatches.join(', ')}` : ''}.`
+        : 'Global batch analytics across the platform.';
+    const visibleSubjectOptions = useMemo(() => {
+        const values = Array.from(new Set(subjectData.map((item) => item._id).filter(Boolean)));
+        return values.sort();
+    }, [subjectData]);
 
     useEffect(() => {
         fetchAllData();
@@ -62,7 +73,8 @@ export default function BatchAnalytics() {
 
     return (
         <div style={{ padding: '0 0.5rem' }}>
-            <h1 style={{ marginBottom: '1.5rem', color: '#1f2937' }}>Batch Performance Analytics</h1>
+            <h1 style={{ marginBottom: '0.5rem', color: '#1f2937' }}>{pageTitle}</h1>
+            <p className="small" style={{ marginBottom: '1.5rem' }}>{pageSubtitle}</p>
 
             {/* Overview Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
@@ -76,7 +88,7 @@ export default function BatchAnalytics() {
                 {/* Subject Performance */}
                 <div className="card">
                     <h3>📚 Subject-wise Proficiency</h3>
-                    <p className="small" style={{ marginBottom: '1rem' }}>Comparison of average accuracy across subjects</p>
+                    <p className="small" style={{ marginBottom: '1rem' }}>{isTeacher ? 'Average accuracy across subjects for your assigned batches' : 'Comparison of average accuracy across subjects'}</p>
                     <div style={{ height: '300px' }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={subjectData} layout="vertical">
@@ -93,7 +105,7 @@ export default function BatchAnalytics() {
                 {/* Readiness Distribution */}
                 <div className="card">
                     <h3>🎯 Placement Readiness</h3>
-                    <p className="small" style={{ marginBottom: '1rem' }}>Distribution of students by readiness level</p>
+                    <p className="small" style={{ marginBottom: '1rem' }}>{isTeacher ? 'Readiness distribution for students in your assigned batches' : 'Distribution of students by readiness level'}</p>
                     <div style={{ height: '300px' }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -124,7 +136,7 @@ export default function BatchAnalytics() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <div>
                         <h3>🔥 Weak Areas Heatmap</h3>
-                        <p className="small">Topics where the batch struggles the most (Low Accuracy)</p>
+                        <p className="small">{isTeacher ? 'Topics where your assigned batches struggle the most' : 'Topics where the batch struggles the most (Low Accuracy)'}</p>
                     </div>
                     <select
                         value={selectedSubject}
@@ -132,10 +144,9 @@ export default function BatchAnalytics() {
                         style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ddd' }}
                     >
                         <option value="">All Subjects</option>
-                        <option value="DBMS">DBMS</option>
-                        <option value="OS">Operating Systems</option>
-                        <option value="CN">Networks</option>
-                        <option value="DSA">DSA</option>
+                        {visibleSubjectOptions.map((subject) => (
+                            <option key={subject} value={subject}>{subject}</option>
+                        ))}
                     </select>
                 </div>
 

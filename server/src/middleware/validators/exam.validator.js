@@ -55,6 +55,26 @@ const createExamValidation = [
     body('questions.*')
         .isMongoId().withMessage('Each selected question must be a valid question ID'),
 
+    body('assignedClasses')
+        .optional()
+        .isArray().withMessage('Assigned classes must be an array'),
+
+    body('assignedClasses.*')
+        .optional()
+        .isString().withMessage('Each assigned class must be a string'),
+
+    body('assignedLabBatches')
+        .optional()
+        .isArray().withMessage('Assigned lab batches must be an array'),
+
+    body('assignedLabBatches.*.className')
+        .optional()
+        .isString().withMessage('Each assigned lab batch must include a class name'),
+
+    body('assignedLabBatches.*.labBatchName')
+        .optional()
+        .isString().withMessage('Each assigned lab batch must include a lab batch name'),
+
     body('startDate')
         .notEmpty().withMessage('Start date is required')
         .isISO8601().withMessage('Start date must be a valid date'),
@@ -114,6 +134,26 @@ const updateExamValidation = [
     body('questions.*')
         .optional()
         .isMongoId().withMessage('Each selected question must be a valid question ID'),
+
+    body('assignedClasses')
+        .optional()
+        .isArray().withMessage('Assigned classes must be an array'),
+
+    body('assignedClasses.*')
+        .optional()
+        .isString().withMessage('Each assigned class must be a string'),
+
+    body('assignedLabBatches')
+        .optional()
+        .isArray().withMessage('Assigned lab batches must be an array'),
+
+    body('assignedLabBatches.*.className')
+        .optional()
+        .isString().withMessage('Each assigned lab batch must include a class name'),
+
+    body('assignedLabBatches.*.labBatchName')
+        .optional()
+        .isString().withMessage('Each assigned lab batch must include a lab batch name'),
 
     body('startDate')
         .optional()

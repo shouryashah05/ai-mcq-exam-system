@@ -16,6 +16,14 @@ function spawnNpm(args, options) {
 execFileSync(process.execPath, [resetScript], {
   cwd: rootDir,
   stdio: 'inherit',
+  env: {
+    ...process.env,
+    AI_SERVICE_URL: 'http://127.0.0.1:5001',
+    JWT_SECRET: 'playwright_test_jwt_secret_at_least_32_chars',
+    FORCE_RESET_ADMIN_EMAIL: 'admin@example.com',
+    FORCE_RESET_STUDENT_EMAIL: 'student@example.com',
+    FORCE_RESET_PASSWORD: 'ChangeMe123!',
+  },
 });
 
 const child = spawnNpm(['--prefix', 'server', 'run', 'start'], {
@@ -23,6 +31,11 @@ const child = spawnNpm(['--prefix', 'server', 'run', 'start'], {
   stdio: 'inherit',
   env: {
     ...process.env,
+    AI_SERVICE_URL: 'http://127.0.0.1:5001',
+    JWT_SECRET: 'playwright_test_jwt_secret_at_least_32_chars',
+    FORCE_RESET_ADMIN_EMAIL: 'admin@example.com',
+    FORCE_RESET_STUDENT_EMAIL: 'student@example.com',
+    FORCE_RESET_PASSWORD: 'ChangeMe123!',
     PORT: '5100',
   },
 });

@@ -12,10 +12,16 @@ export const uploadQuestionImage = (file) => {
   }).then(r => r.data);
 };
 export const deleteQuestionImage = (publicId) => api.post('/questions/delete-image', { publicId }).then(r => r.data);
-export const fetchQuestions = (category, difficulty) => {
+export const fetchQuestions = (categoryOrOptions, difficulty) => {
   const params = new URLSearchParams();
-  if (category) params.append('category', category);
-  if (difficulty) params.append('difficulty', difficulty);
+  const options = typeof categoryOrOptions === 'object' && categoryOrOptions !== null
+    ? categoryOrOptions
+    : { category: categoryOrOptions, difficulty };
+
+  if (options.category) params.append('category', options.category);
+  if (options.difficulty) params.append('difficulty', options.difficulty);
+  if (options.mine) params.append('mine', 'true');
+  if (options.scope) params.append('scope', options.scope);
   return api.get(`/questions?${params.toString()}`).then(r => r.data);
 };
 export const getQuestionById = (id) => api.get(`/questions/${id}`).then(r => r.data);

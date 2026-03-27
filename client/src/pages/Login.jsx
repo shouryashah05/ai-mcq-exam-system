@@ -2,12 +2,14 @@ import React, { useState, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { verifyEmailToken } from '../services/verificationService';
+import { getHomeRouteForRole } from '../utils/roleRouting';
 
 export default function Login() {
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [showVerifyToken, setShowVerifyToken] = useState(false);
   const [verifyToken, setVerifyToken] = useState('');
@@ -17,15 +19,9 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     try {
-      if (!email || !password) return setError('Email/Enrollment number and password are required');
+      if (!email || !password) return setError('Email, enrollment number, employee ID, or admin ID and password are required');
       const data = await login({ email: email.trim(), password });
-
-      // Redirect based on role
-      if (data.user?.role === 'admin') {
-        navigate('/admin/dashboard', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
+      navigate(getHomeRouteForRole(data.user?.role), { replace: true });
     } catch (err) {
       const errorMsg = err?.response?.data?.message || err.message;
       setError(errorMsg);
@@ -71,27 +67,49 @@ export default function Login() {
           {verifySuccess && <div className="alert alert-success" style={{ marginBottom: '16px' }}>{verifySuccess}</div>}
 
           <div className="form-group">
-            <label htmlFor="login-email">Enrollment Number or Email</label>
+            <label htmlFor="login-email">Email, Enrollment Number, Employee ID, or Admin ID</label>
             <input
               id="login-email"
               type="text"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="Enrollment or email"
+              placeholder="Email, enrollment number, employee ID, or admin ID"
               required
             />
           </div>
 
           <div className="form-group">
             <label htmlFor="login-password">Password</label>
-            <input
-              id="login-password"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                style={{ paddingRight: '72px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 0,
+                  background: 'transparent',
+                  color: 'var(--primary)',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  padding: 0,
+                }}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="button-lg" style={{ width: '100%' }}>

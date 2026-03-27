@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { fetchExams } from '../services/examService';
 import { AuthContext } from '../context/AuthContext';
+import { buildStudentAudienceBadges, getAudienceBadgeStyle } from '../utils/examAudience';
+
+const audienceBadgeBaseStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '4px 8px',
+  borderRadius: '999px',
+  fontSize: '12px',
+  fontWeight: 600,
+  lineHeight: 1.2,
+};
 
 export default function StudentExams({ onStartExam }) {
   const { user } = useContext(AuthContext);
@@ -50,6 +61,13 @@ export default function StudentExams({ onStartExam }) {
               <div key={ex._id} style={{ padding: '12px 0', borderBottom: '1px solid #eee' }}>
                 <div><strong>{ex.title}</strong></div>
                 <div className="small" style={{ marginTop: 4 }}>{ex.description}</div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {buildStudentAudienceBadges(ex, user).map((badge) => (
+                    <span key={badge.key} style={{ ...audienceBadgeBaseStyle, ...getAudienceBadgeStyle(badge.tone) }}>
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
                 <div className="small" style={{ marginTop: 4, color: '#666' }}>
                   Duration: {ex.duration} mins | Questions: {ex.questions.length} | Marks: {ex.totalMarks} | Pass: {ex.passingMarks}
                 </div>

@@ -1,13 +1,15 @@
 import React, { useContext } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import LoadingSpinner from './LoadingSpinner';
+import { getHomeRouteForRole } from '../utils/roleRouting';
 
 export default function ProtectedRoute({ children, roles }){
-  const { user } = useContext(AuthContext);
+  const { user, authReady } = useContext(AuthContext);
+  if (!authReady) return <LoadingSpinner />;
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) {
-    const fallbackPath = user.role === 'admin' ? '/admin/dashboard' : '/dashboard';
-    return <Navigate to={fallbackPath} replace />;
+    return <Navigate to={getHomeRouteForRole(user.role)} replace />;
   }
   return children;
 }

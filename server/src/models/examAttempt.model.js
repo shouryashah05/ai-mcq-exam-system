@@ -7,6 +7,9 @@ const examAttemptSchema = new mongoose.Schema({
   answers: [{
     questionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Question' },
     selectedOption: { type: Number, default: null },
+    shuffledOptions: { type: [String], default: [] },
+    optionOrder: { type: [Number], default: [] },
+    correctOptionIndex: { type: Number, default: null },
     isCorrect: { type: Boolean, default: null },
     marksAwarded: { type: Number, default: 0 },
     timeSpentSeconds: { type: Number, default: 0 },

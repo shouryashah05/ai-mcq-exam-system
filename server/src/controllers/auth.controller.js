@@ -1,7 +1,22 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
-const { normalizeUserIdentity, serializeUser } = require('../utils/userIdentity');
+const { getCookieOptions } = require('../config/env');
+const logger = require('../utils/logger');
+const { buildEnrollmentNo, normalizeRoleIdentifier, normalizeUserIdentity, serializeUser } = require('../utils/userIdentity');
+const { queueVerificationEmail } = require('../services/email.service');
+
+const signAuthToken = (user) => jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+  expiresIn: process.env.JWT_EXPIRES_IN || '30d',
+});
+
+const attachAuthCookie = (res, token) => {
+  res.cookie('auth_token', token, getCookieOptions());
+};
+
+const clearAuthCookie = (res) => {
+  res.clearCookie('auth_token', { ...getCookieOptions(), maxAge: undefined });
+};
 
 const selfRegistrationDisabled = async (req, res, next) => {
   try {
@@ -23,14 +38,13 @@ const register = async (req, res, next) => {
 
     // Auto-generate enrollmentNo for students if not provided (convenient for tests/dev)
     if (!enrollmentNo) {
-      const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
-      enrollmentNo = `AUTO${Date.now().toString(36).toUpperCase().slice(-5)}${rand}`.toUpperCase();
+      enrollmentNo = buildEnrollmentNo();
     }
 
     // Prevent open admin registration unless explicitly allowed via env
-    if (role === 'admin' && process.env.ALLOW_ADMIN_REGISTRATION !== 'true') {
+    if (role !== 'student') {
       res.status(403);
-      throw new Error('Admin registration is disabled');
+      throw new Error('Only student self-registration is allowed');
     }
 
     // Check for duplicate enrollment number (primary key)
@@ -67,12 +81,11 @@ const register = async (req, res, next) => {
     });
 
     // Send verification email (only for students, admins are pre-verified)
-    if (role === 'student') {
+    if (role !== 'admin') {
       try {
-        const { sendVerificationEmail } = require('../services/email.service');
-        await sendVerificationEmail(user.email, verificationToken, normalizedIdentity.name);
+        await queueVerificationEmail(user.email, verificationToken, normalizedIdentity.name);
       } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
+        logger.warn('Failed to queue verification email', { error: emailError, email: user.email });
         // Don't fail registration if email fails, but log it
       }
     } else {
@@ -92,9 +105,8 @@ const register = async (req, res, next) => {
         await user.save();
       }
 
-      const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRES_IN || '30d',
-      });
+      const token = signAuthToken(user);
+      attachAuthCookie(res, token);
 
       res.status(201).json({
         user: serializeUser(user),
@@ -118,14 +130,18 @@ const login = async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) {
       res.status(400);
-      throw new Error('Email/Enrollment number and password are required');
+      throw new Error('Email, enrollment number, employee ID, or admin ID and password are required');
     }
 
-    // Find user by email OR enrollment number
+    const normalizedIdentifier = normalizeRoleIdentifier(email);
+
+    // Find user by email, enrollment number, employee ID, or admin ID.
     const user = await User.findOne({
       $or: [
         { email: email },
-        { enrollmentNo: email } // 'email' field can contain enrollment number
+        { enrollmentNo: normalizedIdentifier },
+        { employeeId: normalizedIdentifier },
+        { adminId: normalizedIdentifier },
       ]
     });
 
@@ -146,14 +162,13 @@ const login = async (req, res, next) => {
     }
 
     // Check if email is verified (only for students)
-    if (user.role === 'student' && !user.isVerified) {
+    if (user.role !== 'admin' && !user.isVerified) {
       res.status(403);
       throw new Error('Please verify your email before logging in. Check your inbox for the verification link.');
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '30d',
-    });
+    const token = signAuthToken(user);
+    attachAuthCookie(res, token);
 
     res.json({
       user: serializeUser(user),
@@ -164,4 +179,13 @@ const login = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, selfRegistrationDisabled };
+const getCurrentSessionUser = async (req, res) => {
+  res.json({ user: serializeUser(req.user) });
+};
+
+const logout = async (req, res) => {
+  clearAuthCookie(res);
+  res.json({ message: 'Logged out successfully.' });
+};
+
+module.exports = { register, login, selfRegistrationDisabled, getCurrentSessionUser, logout };
