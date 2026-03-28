@@ -22,8 +22,8 @@ export default function Toast() {
   return (
     <div style={containerStyle} aria-live="polite">
       {toasts.map(t => (
-        <div key={t.id} style={{ ...toastStyle, ...(variantStyles[t.type] || infoStyle) }}>
-          <strong style={{display:'block'}}>{labels[t.type] || 'Info'}</strong>
+        <div key={t.id} className="mit-toast" style={{ ...toastStyle, ...(variantStyles[t.type] || infoStyle) }}>
+          <strong style={{display:'block', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '11px'}}>{labels[t.type] || 'Info'}</strong>
           <div>{t.message}</div>
         </div>
       ))}
@@ -34,7 +34,7 @@ export default function Toast() {
 const containerStyle = {
   position: 'fixed',
   right: 16,
-  top: 80,
+  top: 88,
   zIndex: 9999,
   display: 'flex',
   flexDirection: 'column',
@@ -44,27 +44,29 @@ const containerStyle = {
 const toastStyle = {
   minWidth: 260,
   padding: '12px 16px',
-  borderRadius: 8,
-  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  borderRadius: 12,
+  boxShadow: '0 10px 24px rgba(26, 26, 46, 0.18)',
+  fontSize: '13px',
+  lineHeight: 1.55,
 };
 
 const infoStyle = {
-  background: '#111827',
+  background: 'linear-gradient(90deg, #4B0082 0%, #6A0DAD 100%)',
   color: '#fff'
 };
 
 const warningStyle = {
-  background: '#ffb74d',
-  color: '#111'
+  background: 'linear-gradient(90deg, #E8631A 0%, #F0960A 100%)',
+  color: '#fff'
 };
 
 const successStyle = {
-  background: '#16a34a',
+  background: 'linear-gradient(90deg, #239743 0%, #28A745 100%)',
   color: '#fff'
 };
 
 const errorStyle = {
-  background: '#dc2626',
+  background: 'linear-gradient(90deg, #C62828 0%, #E8361A 100%)',
   color: '#fff'
 };
 

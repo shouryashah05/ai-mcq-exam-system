@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { verifyEmailToken } from '../services/verificationService';
+import mitLogoWhite from '../../../assets/MIT LOGO WHITE.png';
 
 export default function Login() {
   const { login } = useContext(AuthContext);
@@ -58,11 +59,14 @@ export default function Login() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
-      <div className="card" style={{ maxWidth: '400px', width: '100%' }}>
+    <div className="auth-screen">
+      <div className="card auth-card">
+        <div className="mit-auth-brand">
+          <img className="mit-auth-logo" src={mitLogoWhite} alt="MIT ADT University" />
+        </div>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <h1 style={{ margin: '0 0 8px 0', fontSize: '2rem' }}>📝</h1>
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>AI MCQ Exam</h2>
+          <h2 className="mit-section-title" style={{ margin: 0, fontSize: '1.4rem' }}>AI MCQ Exam</h2>
+          <div className="mit-accent-line" aria-hidden="true" />
           <p className="text-muted" style={{ marginTop: '8px' }}>Sign in to continue</p>
         </div>
 
@@ -101,8 +105,8 @@ export default function Login() {
 
         {/* Manual Token Verification Section */}
         {showVerifyToken && (
-          <div style={{ marginTop: '24px', padding: '16px', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #dee2e6' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '1rem', color: '#495057' }}>📧 Verify Your Email</h3>
+          <div className="mit-soft-panel">
+            <h3 className="mit-panel-heading">Verify Your Email</h3>
             <p style={{ margin: '0 0 8px 0', fontSize: '0.875rem', color: '#6c757d' }}>
               Find the verification token in your email. It looks like this:
             </p>
@@ -131,7 +135,7 @@ export default function Login() {
           </div>
         )}
         <div style={{ marginTop: '12px', textAlign: 'right' }}>
-          <Link to="/forgot-password" style={{ color: 'var(--primary)', textDecoration: 'none', fontSize: '0.9rem' }}>
+          <Link to="/forgot-password" className="mit-link" style={{ fontSize: '0.9rem' }}>
             Forgot password?
           </Link>
         </div>

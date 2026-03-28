@@ -1,13 +1,17 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import mitLogoWhite from '../../../assets/MIT LOGO WHITE.png';
 
 export default function Register() {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '16px' }}>
-      <div className="card" style={{ maxWidth: '440px', width: '100%' }}>
+    <div className="auth-screen">
+      <div className="card auth-card" style={{ maxWidth: '460px' }}>
+        <div className="mit-auth-brand">
+          <img className="mit-auth-logo" src={mitLogoWhite} alt="MIT ADT University" />
+        </div>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <h1 style={{ margin: '0 0 8px 0', fontSize: '2rem' }}>🔐</h1>
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Account Access Managed</h2>
+          <h2 className="mit-section-title" style={{ margin: 0, fontSize: '1.2rem' }}>Account Access Managed</h2>
+          <div className="mit-accent-line" aria-hidden="true" />
           <p className="text-muted" style={{ marginTop: '8px' }}>
             This platform does not allow public self-signup.
           </p>

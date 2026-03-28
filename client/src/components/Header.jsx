@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import mitLogoWhite from '../../../assets/MIT LOGO WHITE.png';
 
 export default function Header() {
   const { user, logout } = useContext(AuthContext);
@@ -17,15 +18,20 @@ export default function Header() {
   const isActive = (path) => location.pathname === path;
 
   return (
-    <header style={styles.header}>
-      <div style={styles.container}>
+    <header className="mit-header">
+      <div className="mit-header-rainbow" aria-hidden="true" />
+      <div className="mit-header-inner">
         {/* Logo/Title */}
-        <div style={styles.logo} onClick={() => navigate(isAdmin ? '/admin' : '/dashboard')}>
-          <h1 style={styles.title}>📝 AI MCQ Exam</h1>
+        <div className="mit-brand" onClick={() => navigate(isAdmin ? '/admin' : '/dashboard')}>
+          <img className="mit-brand-logo" src={mitLogoWhite} alt="MIT ADT University" />
+          <div className="mit-brand-text-wrap">
+            <h1 className="mit-brand-title">AI MCQ Exam</h1>
+            <span className="mit-brand-subtitle">Assessment Portal</span>
+          </div>
         </div>
 
         {/* Navigation Links */}
-        <nav style={styles.nav}>
+        <nav className="mit-header-nav">
           {isAdmin && (
             <>
               <NavLink text="Dashboard" path="/admin/dashboard" isActive={isActive('/admin/dashboard')} onClick={() => navigate('/admin/dashboard')} />
@@ -47,10 +53,10 @@ export default function Header() {
         </nav>
 
         {/* User Info & Logout */}
-        <div style={styles.userSection}>
-          <span style={styles.userEmail}>{user.enrollmentNo}</span>
-          <span style={styles.userRole}>{user.role}</span>
-          <button style={styles.logoutBtn} onClick={handleLogout}>Logout</button>
+        <div className="mit-user-section">
+          <span className="mit-user-email">{user.enrollmentNo}</span>
+          <span className="mit-user-role">{user.role}</span>
+          <button className="mit-logout-btn" onClick={handleLogout}>Logout</button>
         </div>
       </div>
     </header>
@@ -60,93 +66,10 @@ export default function Header() {
 function NavLink({ text, path, isActive, onClick }) {
   return (
     <button
-      style={{
-        ...styles.navLink,
-        ...(isActive && styles.navLinkActive)
-      }}
+      className={`mit-nav-link ${isActive ? 'mit-nav-link-active' : ''}`}
       onClick={onClick}
     >
       {text}
     </button>
   );
 }
-
-const styles = {
-  header: {
-    backgroundColor: '#0b5fff',
-    color: '#fff',
-    padding: '0',
-    boxShadow: '0 2px 8px rgba(11, 95, 255, 0.15)',
-    position: 'sticky',
-    top: 0,
-    zIndex: 100,
-  },
-  container: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    padding: '12px 24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  logo: {
-    cursor: 'pointer',
-    marginRight: '32px',
-  },
-  title: {
-    margin: 0,
-    fontSize: '1.5rem',
-    fontWeight: '700',
-  },
-  nav: {
-    display: 'flex',
-    gap: '4px',
-    flex: 1,
-  },
-  navLink: {
-    background: 'transparent',
-    color: 'rgba(255, 255, 255, 0.8)',
-    border: 'none',
-    padding: '8px 16px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '0.9rem',
-    fontWeight: '500',
-    transition: 'all 0.3s ease',
-  },
-  navLinkActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    color: '#fff',
-  },
-  userSection: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginLeft: '32px',
-  },
-  userEmail: {
-    fontSize: '0.85rem',
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '500',
-  },
-  userRole: {
-    fontSize: '0.75rem',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    color: '#fff',
-    textTransform: 'uppercase',
-    fontWeight: '600',
-  },
-  logoutBtn: {
-    background: 'rgba(255, 255, 255, 0.2)',
-    color: '#fff',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    padding: '6px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    fontWeight: '500',
-    transition: 'all 0.3s ease',
-  },
-};

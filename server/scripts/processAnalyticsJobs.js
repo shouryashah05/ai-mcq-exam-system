@@ -1,13 +1,14 @@
 const mongoose = require('mongoose');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // Load app config to connect DB (server/src/config/db.js)
-const dbConfig = require('../src/config/db');
+const connectDB = require('../src/config/db');
 const AnalyticsJob = require('../src/models/analyticsJob.model');
 const PerformanceAnalyticsController = require('../src/controllers/performanceAnalytics.controller');
 
 async function connectDb() {
-  await dbConfig.connect();
+  await connectDB(process.env.MONGO_URI);
 }
 
 async function processOne(job) {

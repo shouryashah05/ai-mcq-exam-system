@@ -10,7 +10,16 @@ export default function SaveIndicator({ status, lastSavedAt }) {
   if (status === 'idle') return null;
 
   return (
-    <div style={{fontSize:12,color: status === 'error' ? 'var(--danger)' : '#666'}} title={lastSavedAt ? new Date(lastSavedAt).toString() : ''}>
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        color: status === 'error' ? 'var(--danger)' : 'var(--text-muted)'
+      }}
+      title={lastSavedAt ? new Date(lastSavedAt).toString() : ''}
+    >
       {text}
     </div>
   );

@@ -41,11 +41,12 @@ export default function ExamsPage() {
     };
 
     return (
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px' }}>
+        <div style={{ maxWidth: '960px', margin: '0 auto', padding: '28px 24px' }}>
             {/* Page Header */}
             <div style={{ marginBottom: '28px' }}>
-                <h1 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 800 }}>📋 Available Exams</h1>
-                <p style={{ margin: '6px 0 0 0', color: '#666', fontSize: '0.95rem' }}>
+                <h1 className="mit-page-title">Available Exams</h1>
+                <div className="mit-accent-line" style={{ margin: '8px 0 12px' }} aria-hidden="true" />
+                <p className="mit-page-subtitle">
                     Active exams assigned by your admin. Click "Start Exam" to begin.
                 </p>
             </div>
@@ -64,29 +65,28 @@ export default function ExamsPage() {
             )}
 
             {!loading && !error && exams.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '60px', color: '#888', background: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📭</div>
-                    <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>No exams available right now.</p>
-                    <p style={{ fontSize: '0.9rem' }}>Check back later or try the Adaptive Practice Mode.</p>
+                <div className="mit-empty-state">
+                    <h3>No Exams Available Right Now</h3>
+                    <p>Check back later or try the adaptive practice mode.</p>
                 </div>
             )}
 
             {!loading && exams.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="mit-exam-list">
                     {exams.map(ex => (
-                        <div key={ex._id} className="card" style={{ padding: '20px 24px', borderLeft: '4px solid var(--primary)', transition: 'box-shadow 0.2s' }}>
+                        <div key={ex._id} className="mit-exam-item">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                                 <div style={{ flex: 1 }}>
                                     <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', fontWeight: 700 }}>{ex.title}</h3>
                                     {ex.description && (
-                                        <p style={{ margin: '0 0 10px 0', color: '#6366f1', fontSize: '0.88rem' }}>{ex.description}</p>
+                                        <p style={{ margin: '0 0 10px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>{ex.description}</p>
                                     )}
-                                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.85rem', color: '#555' }}>
+                                    <div className="mit-exam-meta">
                                         <span>⏱ {ex.duration} mins</span>
                                         <span>❓ {ex.questions.length} questions</span>
                                         <span>🏆 {ex.totalMarks} marks</span>
                                         <span>✅ Pass: {ex.passingMarks}</span>
-                                        {ex.enableNegativeMarking && <span style={{ color: '#ef4444' }}>⚠️ Negative marking</span>}
+                                        {ex.enableNegativeMarking && <span className="mit-chip mit-chip-danger">Negative Marking</span>}
                                     </div>
                                     <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#999' }}>
                                         Ends: {new Date(ex.endDate).toLocaleDateString()} at {new Date(ex.endDate).toLocaleTimeString()}

@@ -18,7 +18,12 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err?.response?.status;
-    if (status === 401) {
+    const requestUrl = String(err?.config?.url || '').toLowerCase();
+    const isAuthEndpoint = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
+    const hadToken = Boolean(localStorage.getItem('token'));
+
+    // Only force logout for protected API calls, not failed login attempts.
+    if (status === 401 && hadToken && !isAuthEndpoint) {
       try {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
