@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const request = require('supertest');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -1030,6 +1029,3 @@ describe('API integration (auth, admin -> exam flow)', () => {
     expect(teacherStudents.body.students.map((student) => student.email)).not.toContain('lab.beta@test.com');
   });
 });
-=======
-attempt.answers[0].question, selectedOption: 2
->>>>>>> 9a1bdfaadcec4257a18bc19b05f4d47dd1ce11bd

@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchExams, createExam, updateExam, deleteExam } from '../services/examService';
+import { getActiveAttemptsForExam, resetAttempt } from '../services/examAttemptService';
 import { createQuestion, fetchQuestions, uploadQuestionImage, deleteQuestionImage } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SymbolPicker from '../components/SymbolPicker';
@@ -233,6 +234,10 @@ export default function AdminExams() {
   const [questionImageUploading, setQuestionImageUploading] = useState(false);
   const [questionFormError, setQuestionFormError] = useState(null);
   const [questionForm, setQuestionForm] = useState(() => buildInlineQuestionForm());
+  const [expandedAttemptExamId, setExpandedAttemptExamId] = useState(null);
+  const [attemptOperations, setAttemptOperations] = useState({});
+  const [attemptOperationsLoadingExamId, setAttemptOperationsLoadingExamId] = useState('');
+  const [attemptResettingId, setAttemptResettingId] = useState('');
   const inlineQuestionTextRef = useRef(null);
   const inlineExplanationRef = useRef(null);
   const inlineOptionRefs = useRef([]);
@@ -798,6 +803,11 @@ export default function AdminExams() {
   };
 
   const handleEdit = async (exam) => {
+    if (exam.isLocked) {
+      showToast('This exam is locked because students have already started it. You can only change its active status now.', { type: 'warning' });
+      return;
+    }
+
     const discarded = await discardInlineQuestionForm(exam.subject || 'Mixed');
     if (!discarded && questionForm.questionImagePublicId) {
       return;
@@ -907,6 +917,59 @@ export default function AdminExams() {
       await loadData();
     } catch (err) {
       showToast(err?.response?.data?.message || err.message, { type: 'error' });
+    }
+  };
+
+  const handleToggleActive = async (exam) => {
+    try {
+      await updateExam(exam._id, { isActive: !exam.isActive });
+      await loadData();
+    } catch (err) {
+      showToast(err?.response?.data?.message || err.message, { type: 'error' });
+    }
+  };
+
+  const handleToggleAttemptOperations = async (exam) => {
+    const nextExpandedExamId = expandedAttemptExamId === exam._id ? null : exam._id;
+    setExpandedAttemptExamId(nextExpandedExamId);
+
+    if (!nextExpandedExamId || attemptOperations[exam._id]) {
+      return;
+    }
+
+    setAttemptOperationsLoadingExamId(exam._id);
+    try {
+      const response = await getActiveAttemptsForExam(exam._id);
+      setAttemptOperations((prev) => ({
+        ...prev,
+        [exam._id]: response.attempts || [],
+      }));
+    } catch (err) {
+      showToast(err?.response?.data?.message || err.message, { type: 'error' });
+    } finally {
+      setAttemptOperationsLoadingExamId('');
+    }
+  };
+
+  const handleResetManagedAttempt = async (examId, attemptId, studentName) => {
+    if (!window.confirm(`Reset the in-progress attempt for ${studentName}? The student will have to restart the exam.`)) {
+      return;
+    }
+
+    setAttemptResettingId(attemptId);
+    try {
+      await resetAttempt(attemptId);
+      const response = await getActiveAttemptsForExam(examId);
+      setAttemptOperations((prev) => ({
+        ...prev,
+        [examId]: response.attempts || [],
+      }));
+      await loadData();
+      showToast('Attempt reset successfully.', { type: 'success' });
+    } catch (err) {
+      showToast(err?.response?.data?.message || err.message, { type: 'error' });
+    } finally {
+      setAttemptResettingId('');
     }
   };
 
@@ -1417,7 +1480,8 @@ export default function AdminExams() {
             </thead>
             <tbody>
               {managedExams.map((exam) => (
-                <tr key={exam._id}>
+                <React.Fragment key={exam._id}>
+                <tr>
                   <td>
                     <strong>{exam.title}</strong>
                     {exam.description && <div className="text-small" style={{ marginTop: '4px', color: 'var(--text-muted)' }}>{exam.description.substring(0, 50)}...</div>}
@@ -1443,12 +1507,103 @@ export default function AdminExams() {
                     <span className={`badge ${exam.isActive ? 'badge-success' : 'badge-danger'}`}>
                       {exam.isActive ? '✓ Active' : '✗ Inactive'}
                     </span>
+                    {exam.isLocked && (
+                      <div className="text-small" style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                        Locked after start • {exam.attemptStats?.startedCount || 0} started • {exam.attemptStats?.completedCount || 0} completed
+                      </div>
+                    )}
                   </td>
                   <td>
-                    <button className="button-sm" onClick={() => handleEdit(exam)}>Edit</button>
-                    <button className="button-sm button-danger" onClick={() => handleDelete(exam._id)} style={{ marginLeft: '4px' }}>Delete</button>
+                    {exam.isLocked ? (
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        <button className="button-sm" onClick={() => handleToggleActive(exam)}>
+                          {exam.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button className="button-sm button-secondary" onClick={() => handleToggleAttemptOperations(exam)}>
+                          {expandedAttemptExamId === exam._id ? 'Hide Attempts' : 'Manage Attempts'}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button className="button-sm" onClick={() => handleEdit(exam)}>Edit</button>
+                        <button className="button-sm button-danger" onClick={() => handleDelete(exam._id)} style={{ marginLeft: '4px' }}>Delete</button>
+                      </>
+                    )}
                   </td>
                 </tr>
+                {expandedAttemptExamId === exam._id && exam.isLocked && (
+                  <tr>
+                    <td colSpan={6} style={{ background: '#f8fafc' }}>
+                      <div style={{ padding: '16px 12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                          <div>
+                            <strong>Active Attempt Operations</strong>
+                            <div className="text-small" style={{ color: 'var(--text-muted)' }}>
+                              Review in-progress attempts and reset individual students when needed.
+                            </div>
+                          </div>
+                          <div className="text-small" style={{ color: 'var(--text-muted)' }}>
+                            {attemptOperationsLoadingExamId === exam._id
+                              ? 'Loading attempts...'
+                              : `${(attemptOperations[exam._id] || []).length} active attempt(s)`}
+                          </div>
+                        </div>
+
+                        {attemptOperationsLoadingExamId === exam._id ? (
+                          <LoadingSpinner />
+                        ) : !(attemptOperations[exam._id] || []).length ? (
+                          <div className="text-small" style={{ color: 'var(--text-muted)' }}>No active attempts for this exam.</div>
+                        ) : (
+                          <div className="report-table">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Student</th>
+                                  <th>Progress</th>
+                                  <th>Started</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(attemptOperations[exam._id] || []).map((attempt) => {
+                                  const studentName = attempt.user?.name || attempt.user?.firstName || 'Student';
+                                  return (
+                                    <tr key={attempt._id}>
+                                      <td>
+                                        <strong>{studentName}</strong>
+                                        <div className="text-small">{attempt.user?.email || 'No email'}</div>
+                                        <div className="text-small" style={{ color: 'var(--text-muted)' }}>
+                                          {attempt.user?.enrollmentNo || 'No enrollment'}
+                                          {attempt.user?.batch ? ` • ${attempt.user.batch}` : ''}
+                                          {attempt.user?.labBatch ? ` • ${attempt.user.labBatch}` : ''}
+                                        </div>
+                                      </td>
+                                      <td>
+                                        <strong>{attempt.answeredCount} / {attempt.totalQuestions}</strong>
+                                        <div className="text-small" style={{ color: 'var(--text-muted)' }}>{attempt.progressPercent}% complete</div>
+                                      </td>
+                                      <td>{attempt.startTime ? new Date(attempt.startTime).toLocaleString() : '-'}</td>
+                                      <td>
+                                        <button
+                                          className="button-sm button-danger"
+                                          onClick={() => handleResetManagedAttempt(exam._id, attempt._id, studentName)}
+                                          disabled={attemptResettingId === attempt._id}
+                                        >
+                                          {attemptResettingId === attempt._id ? 'Resetting...' : 'Reset Attempt'}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

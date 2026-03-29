@@ -4,6 +4,8 @@ const Question = require('../models/question.model');
 const AnalyticsJob = require('../models/analyticsJob.model');
 const PerformanceAnalyticsController = require('./performanceAnalytics.controller');
 const { isExamVisibleToStudent } = require('../utils/examAudience');
+const { ensureResourceOwnerOrAdmin, isAdmin, isTeacher } = require('../utils/permissions');
+const { buildExamSnapshot, mergeAttemptExamSnapshot } = require('../utils/attemptSnapshot');
 const {
   buildShuffledOptionData,
   serializeAttemptForClient,
@@ -155,6 +157,7 @@ const startExam = async (req, res, next) => {
     const attempt = await ExamAttempt.create({
       user: req.user._id,
       exam: examId,
+      examSnapshot: buildExamSnapshot(exam),
       answers,
       startTime: new Date()
     });
@@ -167,6 +170,104 @@ const startExam = async (req, res, next) => {
       });
 
     res.status(201).json({ attempt: serializeAttemptForClient(populatedAttempt) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const cancelAttempt = async (req, res, next) => {
+  try {
+    const { attemptId } = req.params;
+    const attempt = await ExamAttempt.findById(attemptId);
+
+    if (!attempt || attempt.user.toString() !== req.user._id.toString()) {
+      res.status(403);
+      throw new Error('Unauthorized');
+    }
+
+    if (attempt.status !== 'in-progress') {
+      res.status(400);
+      throw new Error('Only in-progress attempts can be cancelled');
+    }
+
+    await ExamAttempt.findByIdAndDelete(attemptId);
+    await AnalyticsJob.deleteMany({ attemptId });
+
+    res.json({ message: 'Attempt cancelled' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getActiveAttemptsForExam = async (req, res, next) => {
+  try {
+    const { examId } = req.params;
+    const exam = await Exam.findById(examId);
+
+    if (!exam) {
+      res.status(404);
+      throw new Error('Exam not found');
+    }
+
+    if (!isAdmin(req.user)) {
+      ensureResourceOwnerOrAdmin(req.user, exam);
+    }
+
+    const attempts = await ExamAttempt.find({ exam: examId, status: 'in-progress' })
+      .populate('user', 'name firstName lastName email enrollmentNo batch labBatch')
+      .sort({ startTime: 1, createdAt: 1 });
+
+    res.json({
+      attempts: attempts.map((attempt) => {
+        const totalQuestions = Array.isArray(attempt.answers) ? attempt.answers.length : 0;
+        const answeredCount = Array.isArray(attempt.answers)
+          ? attempt.answers.filter((answer) => answer.selectedOption !== null && answer.selectedOption !== undefined).length
+          : 0;
+
+        return {
+          _id: attempt._id,
+          startTime: attempt.startTime,
+          createdAt: attempt.createdAt,
+          answeredCount,
+          totalQuestions,
+          progressPercent: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0,
+          user: attempt.user,
+        };
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resetAttempt = async (req, res, next) => {
+  try {
+    const { attemptId } = req.params;
+    const attempt = await ExamAttempt.findById(attemptId).populate('exam');
+
+    if (!attempt) {
+      res.status(404);
+      throw new Error('Attempt not found');
+    }
+
+    if (attempt.status !== 'in-progress') {
+      res.status(400);
+      throw new Error('Only in-progress attempts can be reset');
+    }
+
+    if (!isAdmin(req.user)) {
+      if (!isTeacher(req.user) || !attempt.exam) {
+        res.status(403);
+        throw new Error('Forbidden');
+      }
+
+      ensureResourceOwnerOrAdmin(req.user, attempt.exam);
+    }
+
+    await ExamAttempt.findByIdAndDelete(attemptId);
+    await AnalyticsJob.deleteMany({ attemptId });
+
+    res.json({ message: 'Attempt reset successfully' });
   } catch (err) {
     next(err);
   }
@@ -381,7 +482,8 @@ const getAttempt = async (req, res, next) => {
     }
 
     if (attempt.status === 'completed') {
-      const { evaluated } = await evaluateAnswers(attempt.exam, attempt.answers);
+      const examContext = attempt.exam || attempt.examSnapshot || {};
+      const { evaluated } = await evaluateAnswers(examContext, attempt.answers);
       return res.json({ attempt: serializeAttemptForClient(attempt), evaluated });
     }
 
@@ -397,10 +499,19 @@ const getAttemptHistory = async (req, res, next) => {
       .populate('exam', 'title subject duration totalMarks passingMarks')
       .sort({ endTime: -1 });
 
-    res.json({ attempts });
+    res.json({ attempts: attempts.map((attempt) => mergeAttemptExamSnapshot(attempt.toObject())) });
   } catch (err) {
     next(err);
   }
 };
 
-module.exports = { startExam, saveAnswer, submitExam, getAttempt, getAttemptHistory };
+module.exports = {
+  startExam,
+  saveAnswer,
+  submitExam,
+  cancelAttempt,
+  getActiveAttemptsForExam,
+  resetAttempt,
+  getAttempt,
+  getAttemptHistory,
+};

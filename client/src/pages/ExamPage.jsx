@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { startExam, saveAnswerWithRetry, submitExam, getAttempt } from '../services/examAttemptService';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { startExam, saveAnswerWithRetry, submitExam, cancelAttempt, getAttempt } from '../services/examAttemptService';
 import { getExamById } from '../services/examService';
-import { getQuestionById } from '../services/questionService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import SaveIndicator from '../components/SaveIndicator';
+import useExamIntegrityGuard from '../hooks/useExamIntegrityGuard';
 import { showToast } from '../utils/appEvents';
 
 export default function ExamPage({ examId, onComplete }) {
+  const navigate = useNavigate();
   const [attempt, setAttempt] = useState(null);
   const [exam, setExam] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -21,6 +23,8 @@ export default function ExamPage({ examId, onComplete }) {
   const [answers, setAnswers] = useState({});
   const [questionStatus, setQuestionStatus] = useState({});
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [tabWarningCount, setTabWarningCount] = useState(0);
+  const integrityTriggeredRef = useRef(false);
 
   // Start exam
   useEffect(() => {
@@ -61,15 +65,8 @@ export default function ExamPage({ examId, onComplete }) {
         if (qList.length > 0) {
           setQuestions(qList);
         } else {
-          // Fallback: re-fetch questions from exam (older attempts without populated questions)
-          const fetched = [];
-          for (const qId of (examObj.questions || [])) {
-            const id = typeof qId === 'string' ? qId : qId._id;
-            try {
-              const q = await getQuestionById(id);
-              if (q.question) fetched.push(q.question);
-            } catch (e) { console.warn('Failed to fetch question', id, e.message); }
-          }
+          // Fallback: use the already-populated exam payload for older attempts.
+          const fetched = (examObj.questions || []).filter((question) => question && typeof question === 'object' && question._id);
           setQuestions(fetched);
         }
 
@@ -224,6 +221,70 @@ export default function ExamPage({ examId, onComplete }) {
     await handleConfirmSubmit();
   };
 
+  const handleCancelAttempt = async () => {
+    if (!attempt) {
+      return;
+    }
+
+    if (!window.confirm('Cancel this in-progress attempt? Your saved answers will be discarded and you can restart the exam later.')) {
+      return;
+    }
+
+    try {
+      const attemptId = attempt._id || attempt.id;
+      await cancelAttempt(attemptId);
+      try {
+        localStorage.removeItem(`attempt_${examId}`);
+        localStorage.removeItem(`attempt_${examId}_idx`);
+      } catch (storageError) {
+        // Ignore local storage cleanup failures.
+      }
+      showToast('Attempt cancelled. You can restart the exam any time before it closes.', { type: 'info' });
+      navigate('/exams');
+    } catch (err) {
+      showToast(err?.response?.data?.message || err.message, { type: 'error' });
+    }
+  };
+
+  const handleIntegrityViolation = async () => {
+    if (!attempt || submitting || integrityTriggeredRef.current) {
+      return;
+    }
+
+    integrityTriggeredRef.current = true;
+    setShowSubmitModal(false);
+    setSubmitting(true);
+
+    try {
+      const attemptId = attempt._id || attempt.id;
+      const res = await submitExam(attemptId);
+      try {
+        localStorage.removeItem(`attempt_${examId}`);
+        localStorage.removeItem(`attempt_${examId}_idx`);
+      } catch (storageError) {
+        // Ignore local storage cleanup failures.
+      }
+      onComplete(res);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Exam was ended because the exam tab lost focus.');
+      setSubmitting(false);
+      integrityTriggeredRef.current = false;
+    }
+  };
+
+  const handleIntegrityWarning = async (count) => {
+    setTabWarningCount(count);
+    showToast('Warning: do not switch tabs during the exam. One more tab switch will submit your exam automatically.', { type: 'warning', duration: 5000 });
+  };
+
+  useExamIntegrityGuard({
+    enabled: Boolean(attempt && attempt.status !== 'completed' && questions.length > 0 && !loading && !submitting),
+    onWarning: handleIntegrityWarning,
+    onViolation: handleIntegrityViolation,
+    beforeUnloadMessage: 'Leaving or switching tabs will automatically submit your exam.',
+    maxWarnings: 1,
+  });
+
   if (loading) return <LoadingSpinner fullScreen />;
   if (error) return <div className="container alert alert-danger">{error}</div>;
   if (!attempt || !questions.length) return <div className="container">No exam data</div>;
@@ -238,6 +299,11 @@ export default function ExamPage({ examId, onComplete }) {
       <div style={{ flex: 1, padding: 24 }}>
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-header" style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 12, padding: '10px 12px', background: tabWarningCount > 0 ? '#fef2f2' : '#fff7ed', border: `1px solid ${tabWarningCount > 0 ? '#fca5a5' : '#fdba74'}`, color: tabWarningCount > 0 ? '#991b1b' : '#9a3412', borderRadius: 8, fontSize: '0.9rem', fontWeight: 600 }}>
+              {tabWarningCount > 0
+                ? 'Warning issued: do not switch tabs again. The next tab switch will submit this exam automatically.'
+                : 'Exam integrity is enforced. Do not switch tabs while attempting this exam.'}
+            </div>
             <div className="flex-between">
               <span>{exam.title}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -297,6 +363,7 @@ export default function ExamPage({ examId, onComplete }) {
               <button disabled={currentQIdx === 0} className="btn btn-secondary" onClick={handlePreviousQuestion}>← Previous Question</button>
               <button disabled={currentQIdx === questions.length - 1} className="btn btn-secondary" onClick={handleNextQuestion}>Next Question →</button>
               <button onClick={handleOpenSubmitModal} className="btn btn-warning" style={{ marginLeft: 'auto' }}>End Exam</button>
+              <button onClick={handleCancelAttempt} className="button-secondary">Cancel Attempt</button>
               <button onClick={handleSubmit} disabled={submitting} className="btn btn-primary">
                 {submitting ? 'Submitting...' : '✓ Submit Exam'}
               </button>

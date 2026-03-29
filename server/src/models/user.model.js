@@ -29,8 +29,8 @@ const userSchema = new mongoose.Schema({
   enrollmentNo: { type: String, required: true, unique: true, trim: true, uppercase: true, default: buildEnrollmentNo }, // PRIMARY KEY
   isActive: { type: Boolean, default: true },
   isVerified: { type: Boolean, default: false }, // SRS requirement: email verification
-  verificationToken: { type: String, default: null }, // For email verification
-  resetPasswordToken: { type: String, default: null }, // For password reset
+  verificationToken: { type: String, default: null }, // Stores a hash of the email verification token
+  resetPasswordToken: { type: String, default: null }, // Stores a hash of the password reset token
   resetPasswordExpires: { type: Date, default: null }, // Token expiration
   createdAt: { type: Date, default: Date.now },
 });

@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
-const { generateToken, queueVerificationEmail, queuePasswordResetEmail, queueAccountSetupEmail } = require('../services/email.service');
+const { queueVerificationEmail, queuePasswordResetEmail, queueAccountSetupEmail } = require('../services/email.service');
 const { buildFullName } = require('../utils/userIdentity');
+const { buildHashedTokenLookup, createTokenRecord } = require('../utils/tokenSecurity');
 
 /**
  * Verify user email with token
@@ -14,7 +15,7 @@ const verifyEmail = async (req, res, next) => {
             throw new Error('Verification token is required');
         }
 
-        const user = await User.findOne({ verificationToken: token });
+        const user = await User.findOne(buildHashedTokenLookup('verificationToken', token));
 
         if (!user) {
             res.status(400);
@@ -38,6 +39,7 @@ const verifyEmail = async (req, res, next) => {
 const resendVerificationEmail = async (req, res, next) => {
     try {
         const { email } = req.body;
+        const genericMessage = 'If the email exists and still needs verification, a verification email has been sent';
 
         if (!email) {
             res.status(400);
@@ -46,25 +48,19 @@ const resendVerificationEmail = async (req, res, next) => {
 
         const user = await User.findOne({ email });
 
-        if (!user) {
-            res.status(404);
-            throw new Error('User not found');
-        }
-
-        if (user.isVerified) {
-            res.status(400);
-            throw new Error('Email is already verified');
+        if (!user || user.isVerified) {
+            return res.json({ message: genericMessage });
         }
 
         // Generate new token
-        const token = generateToken();
-        user.verificationToken = token;
+        const verificationToken = createTokenRecord();
+        user.verificationToken = verificationToken.hashedToken;
         await user.save();
 
         // Send verification email
-        await queueVerificationEmail(user.email, token, user.name);
+        await queueVerificationEmail(user.email, verificationToken.rawToken, user.name);
 
-        res.json({ message: 'Verification email sent successfully' });
+        res.json({ message: genericMessage });
     } catch (err) {
         next(err);
     }
@@ -90,8 +86,8 @@ const requestPasswordReset = async (req, res, next) => {
         }
 
         // Generate reset token
-        const token = generateToken();
-        user.resetPasswordToken = token;
+        const resetToken = createTokenRecord();
+        user.resetPasswordToken = resetToken.hashedToken;
         user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
         await user.save();
 
@@ -100,14 +96,14 @@ const requestPasswordReset = async (req, res, next) => {
         if (process.env.NODE_ENV === 'test') {
             return res.json({
                 message: 'If the email exists, a password reset link has been sent',
-                resetToken: token,
+                resetToken: resetToken.rawToken,
             });
         }
 
         if (user.isVerified) {
-            await queuePasswordResetEmail(user.email, token, displayName);
+            await queuePasswordResetEmail(user.email, resetToken.rawToken, displayName);
         } else {
-            await queueAccountSetupEmail(user.email, token, displayName);
+            await queueAccountSetupEmail(user.email, resetToken.rawToken, displayName);
         }
 
         res.json({ message: 'If the email exists, a password reset link has been sent' });
@@ -134,7 +130,7 @@ const resetPassword = async (req, res, next) => {
         }
 
         const user = await User.findOne({
-            resetPasswordToken: token,
+            ...buildHashedTokenLookup('resetPasswordToken', token),
             resetPasswordExpires: { $gt: Date.now() },
         });
 

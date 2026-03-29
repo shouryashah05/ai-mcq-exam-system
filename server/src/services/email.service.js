@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
-const crypto = require('crypto');
 const EmailJob = require('../models/emailJob.model');
 const logger = require('../utils/logger');
+const { decryptToken, encryptToken, generateRawToken } = require('../utils/tokenSecurity');
 
 /**
  * Email Service for sending verification and password reset emails
@@ -23,9 +23,7 @@ const createTransporter = () => {
 /**
  * Generate a random verification token
  */
-const generateToken = () => {
-    return crypto.randomBytes(32).toString('hex');
-};
+const generateToken = () => generateRawToken();
 
 const buildVerificationMailOptions = (email, token, name) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -97,7 +95,7 @@ const enqueueEmailJob = async ({ type, recipient, token, name }) => {
     await EmailJob.create({
         type,
         recipient,
-        token,
+    token: encryptToken(token),
         name,
         status: 'pending',
         availableAt: new Date(),
@@ -181,18 +179,20 @@ const queueAccountSetupEmail = async (email, token, name) => enqueueEmailJob({
 });
 
 const processEmailJob = async (job) => {
+  const token = decryptToken(job.token);
+
   if (job.type === 'verification') {
-    await sendVerificationEmail(job.recipient, job.token, job.name);
+    await sendVerificationEmail(job.recipient, token, job.name);
     return;
   }
 
   if (job.type === 'password-reset') {
-    await sendPasswordResetEmail(job.recipient, job.token, job.name);
+    await sendPasswordResetEmail(job.recipient, token, job.name);
     return;
   }
 
   if (job.type === 'account-setup') {
-    await sendAccountSetupEmail(job.recipient, job.token, job.name);
+    await sendAccountSetupEmail(job.recipient, token, job.name);
     return;
   }
 

@@ -1,10 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { endAdaptiveTest, startAdaptiveTest, submitAdaptiveAnswer } from '../services/examService';
+import useExamIntegrityGuard from '../hooks/useExamIntegrityGuard';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { showToast } from '../utils/appEvents';
 
 const TOTAL_QUESTIONS_FALLBACK = 10;
 const DURATION_FALLBACK_MINUTES = 20;
+const QUESTION_COUNT_OPTIONS = [5, 10, 15, 20, 25];
+const DURATION_OPTIONS = [10, 15, 20, 30, 45, 60];
 
 const formatCountdown = (totalSeconds) => {
     const safeSeconds = Math.max(0, totalSeconds);
@@ -20,6 +24,9 @@ export default function AdaptiveTest() {
 
     const [step, setStep] = useState('setup');
     const [subject, setSubject] = useState('');
+    const [selectedQuestionCount, setSelectedQuestionCount] = useState(TOTAL_QUESTIONS_FALLBACK);
+    const [selectedDurationMinutes, setSelectedDurationMinutes] = useState(DURATION_FALLBACK_MINUTES);
+    const [enableNegativeMarking, setEnableNegativeMarking] = useState(false);
     const [testTitle, setTestTitle] = useState('Adaptive Practice');
     const [attemptId, setAttemptId] = useState(null);
     const [allQuestions, setAllQuestions] = useState([]);
@@ -37,6 +44,8 @@ export default function AdaptiveTest() {
     const [error, setError] = useState(null);
     const [showSubmitModal, setShowSubmitModal] = useState(false);
     const [modalMode, setModalMode] = useState('submit');
+    const [tabWarningCount, setTabWarningCount] = useState(0);
+    const integrityTriggeredRef = useRef(false);
 
     const currentQuestion = allQuestions[currentQuestionIndex] || null;
     const currentQuestionState = questionStates[currentQuestionIndex] || { selectedOption: null, committed: false };
@@ -94,7 +103,12 @@ export default function AdaptiveTest() {
         setError(null);
 
         try {
-            const response = await startAdaptiveTest(subject);
+            const response = await startAdaptiveTest({
+                subject,
+                totalQuestions: selectedQuestionCount,
+                durationMinutes: selectedDurationMinutes,
+                enableNegativeMarking,
+            });
             if (!response.success || !response.data?.question) {
                 throw new Error(response.message || 'Failed to start adaptive practice.');
             }
@@ -279,6 +293,28 @@ export default function AdaptiveTest() {
         }
     };
 
+    const handleIntegrityViolation = async () => {
+        if (step !== 'question' || !attemptId || ending || loading || integrityTriggeredRef.current) {
+            return;
+        }
+
+        integrityTriggeredRef.current = true;
+        await finalizeAdaptiveTest('submit', { skipConfirm: true });
+    };
+
+    const handleIntegrityWarning = async (count) => {
+        setTabWarningCount(count);
+        showToast('Warning: do not switch tabs during the adaptive test. One more tab switch will end the attempt automatically.', { type: 'warning', duration: 5000 });
+    };
+
+    useExamIntegrityGuard({
+        enabled: step === 'question' && Boolean(attemptId) && !loading && !ending,
+        onWarning: handleIntegrityWarning,
+        onViolation: handleIntegrityViolation,
+        beforeUnloadMessage: 'Leaving or switching tabs will automatically end your adaptive test.',
+        maxWarnings: 1,
+    });
+
     if (step === 'setup') {
         return (
             <div className="container flex-center" style={{ minHeight: '80vh' }}>
@@ -305,6 +341,29 @@ export default function AdaptiveTest() {
                                 <option value="Mixed">Mixed (All Subjects)</option>
                             </select>
                         </div>
+
+                        <div className="form-group">
+                            <label>Question Count</label>
+                            <select value={selectedQuestionCount} onChange={(event) => setSelectedQuestionCount(Number(event.target.value))}>
+                                {QUESTION_COUNT_OPTIONS.map((count) => (
+                                    <option key={count} value={count}>{count} questions</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label>Duration</label>
+                            <select value={selectedDurationMinutes} onChange={(event) => setSelectedDurationMinutes(Number(event.target.value))}>
+                                {DURATION_OPTIONS.map((minutes) => (
+                                    <option key={minutes} value={minutes}>{minutes} minutes</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                            <input type="checkbox" checked={enableNegativeMarking} onChange={(event) => setEnableNegativeMarking(event.target.checked)} />
+                            <span>Enable negative marking for this practice session</span>
+                        </label>
 
                         <button className="button button-lg" onClick={handleStart} disabled={!subject || loading} style={{ width: '100%' }}>
                             {loading ? 'Starting...' : 'Start Adaptive Test'}
@@ -333,6 +392,9 @@ export default function AdaptiveTest() {
                             <button className="button-secondary" onClick={() => {
                                 setStep('setup');
                                 setSubject('');
+                                setSelectedQuestionCount(TOTAL_QUESTIONS_FALLBACK);
+                                setSelectedDurationMinutes(DURATION_FALLBACK_MINUTES);
+                                setEnableNegativeMarking(false);
                                 setAttemptId(null);
                                 setAllQuestions([]);
                                 setQuestionStates([]);
@@ -358,6 +420,11 @@ export default function AdaptiveTest() {
 
                 <div className="card" style={{ marginBottom: 0 }}>
                     <div className="card-header" style={{ marginBottom: 24 }}>
+                        <div style={{ marginBottom: 12, padding: '10px 12px', background: tabWarningCount > 0 ? '#fef2f2' : '#fff7ed', border: `1px solid ${tabWarningCount > 0 ? '#fca5a5' : '#fdba74'}`, color: tabWarningCount > 0 ? '#991b1b' : '#9a3412', borderRadius: 8, fontSize: '0.9rem', fontWeight: 600 }}>
+                            {tabWarningCount > 0
+                                ? 'Warning issued: do not switch tabs again. The next tab switch will end this adaptive attempt automatically.'
+                                : 'Adaptive test integrity is enforced. Do not switch tabs while attempting this test.'}
+                        </div>
                         <div className="flex-between">
                             <span>{testTitle}</span>
                             <span style={{ color: timeLeft < 60 ? 'var(--danger)' : 'inherit', fontWeight: 600 }}>

@@ -1,4 +1,5 @@
 const express = require('express');
+const { verifyToken, authorizeRoles } = require('../middleware/auth');
 const router = express.Router();
 let client;
 try {
@@ -20,7 +21,7 @@ router.get('/health', (req, res) => {
 });
 
 if (client) {
-  router.get('/metrics', async (req, res) => {
+  router.get('/metrics', verifyToken, authorizeRoles('admin'), async (req, res) => {
     try {
       res.set('Content-Type', client.register.contentType);
       const metrics = await client.register.metrics();

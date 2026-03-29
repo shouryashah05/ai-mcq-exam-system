@@ -5,9 +5,8 @@ const { createExamValidation, updateExamValidation } = require('../middleware/va
 
 const router = express.Router();
 
-// Public: get exams (student view)
-router.get('/', optionalVerifyToken, getExams);
-router.get('/:id', optionalVerifyToken, getExamById);
+router.get('/', verifyToken, getExams);
+router.get('/:id', verifyToken, getExamById);
 
 // Content managers: create, update, delete
 router.use(verifyToken, authorizeRoles('admin', 'teacher'));

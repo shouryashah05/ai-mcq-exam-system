@@ -25,13 +25,17 @@ const ensureCloudinaryConfigured = () => {
   return cloudinary;
 };
 
-const uploadQuestionImageBuffer = (buffer, originalName, mimetype) => {
+const uploadQuestionImageBuffer = (buffer, originalName, mimetype, ownerId) => {
   const cloudinaryClient = ensureCloudinaryConfigured();
+  const sanitizedOwnerId = String(ownerId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const baseFolder = sanitizedOwnerId
+    ? `ai-mcq/questions/${sanitizedOwnerId}`
+    : 'ai-mcq/questions/unscoped';
 
   return new Promise((resolve, reject) => {
     const stream = cloudinaryClient.uploader.upload_stream(
       {
-        folder: 'ai-mcq/questions',
+        folder: baseFolder,
         resource_type: 'image',
         public_id: originalName ? originalName.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 60) : undefined,
         overwrite: false,

@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Exam = require('../models/exam.model');
+const ExamAttempt = require('../models/examAttempt.model');
 const Question = require('../models/question.model');
 const { ensureResourceOwnerOrAdmin, getManagedSubjects, isTeacher } = require('../utils/permissions');
 const { isExamVisibleToStudent, normalizeExamAudience, validateTeacherExamAudience } = require('../utils/examAudience');
@@ -12,6 +14,64 @@ const sortLatestExamsFirst = (left, right) => {
 const failValidation = (res, message) => {
   res.status(400);
   throw new Error(message);
+};
+
+const LIFECYCLE_MUTABLE_KEYS = new Set(['isActive']);
+
+const getExamAttemptStats = async (examIds) => {
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(examIds) ? examIds : [])
+      .filter(Boolean)
+      .map((id) => id.toString())
+  ));
+
+  if (!normalizedIds.length) {
+    return new Map();
+  }
+
+  const objectIds = normalizedIds.map((id) => new mongoose.Types.ObjectId(id));
+  const stats = await ExamAttempt.aggregate([
+    { $match: { exam: { $in: objectIds } } },
+    {
+      $group: {
+        _id: '$exam',
+        startedCount: { $sum: 1 },
+        activeCount: {
+          $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] },
+        },
+        completedCount: {
+          $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
+        },
+      },
+    },
+  ]);
+
+  return new Map(stats.map((entry) => [String(entry._id), {
+    startedCount: entry.startedCount || 0,
+    activeCount: entry.activeCount || 0,
+    completedCount: entry.completedCount || 0,
+    isLocked: (entry.startedCount || 0) > 0,
+  }]));
+};
+
+const attachExamAttemptStats = (exam, statsByExamId) => {
+  const plainExam = exam?.toObject ? exam.toObject() : exam;
+  if (!plainExam) {
+    return plainExam;
+  }
+
+  const attemptStats = statsByExamId.get(String(plainExam._id)) || {
+    startedCount: 0,
+    activeCount: 0,
+    completedCount: 0,
+    isLocked: false,
+  };
+
+  return {
+    ...plainExam,
+    attemptStats,
+    isLocked: attemptStats.isLocked,
+  };
 };
 
 const normalizeQuestionIds = (questions = []) => {
@@ -148,7 +208,9 @@ const getExams = async (req, res, next) => {
       ? exams.filter((exam) => isExamVisibleToStudent(exam, req.user))
       : exams;
 
-    res.json({ exams: visibleExams.sort(sortLatestExamsFirst) });
+    const statsByExamId = await getExamAttemptStats(visibleExams.map((exam) => exam._id));
+
+    res.json({ exams: visibleExams.map((exam) => attachExamAttemptStats(exam, statsByExamId)).sort(sortLatestExamsFirst) });
   } catch (err) {
     next(err);
   }
@@ -170,7 +232,8 @@ const getExamById = async (req, res, next) => {
       throw new Error('Exam not found');
     }
 
-    res.json({ exam });
+    const statsByExamId = await getExamAttemptStats([exam._id]);
+    res.json({ exam: attachExamAttemptStats(exam, statsByExamId) });
   } catch (err) {
     next(err);
   }
@@ -186,6 +249,26 @@ const updateExam = async (req, res, next) => {
     }
 
     ensureResourceOwnerOrAdmin(req.user, exam);
+
+    const statsByExamId = await getExamAttemptStats([exam._id]);
+    const attemptStats = statsByExamId.get(String(exam._id)) || { isLocked: false };
+    const requestedKeys = Object.keys(req.body || {}).filter((key) => req.body[key] !== undefined);
+
+    if (attemptStats.isLocked) {
+      const disallowedKeys = requestedKeys.filter((key) => !LIFECYCLE_MUTABLE_KEYS.has(key));
+      if (disallowedKeys.length > 0) {
+        res.status(409);
+        throw new Error('This exam is locked because students have already started it. Only the active status can be changed now.');
+      }
+    }
+
+    if (attemptStats.isLocked && requestedKeys.length > 0) {
+      exam.isActive = Boolean(req.body.isActive);
+      await exam.save();
+      await exam.populate('questions', 'questionText marks subject difficulty topic questionImageUrl');
+      await exam.populate('createdBy', 'name email role');
+      return res.json({ exam: attachExamAttemptStats(exam, statsByExamId) });
+    }
 
     const payload = await buildExamPayload(res, {
       title: req.body.title ?? exam.title,
@@ -206,7 +289,7 @@ const updateExam = async (req, res, next) => {
     await exam.save();
     await exam.populate('questions', 'questionText marks subject difficulty topic questionImageUrl');
     await exam.populate('createdBy', 'name email role');
-    res.json({ exam });
+    res.json({ exam: attachExamAttemptStats(exam, statsByExamId) });
   } catch (err) {
     next(err);
   }
@@ -222,6 +305,13 @@ const deleteExam = async (req, res, next) => {
     }
 
     ensureResourceOwnerOrAdmin(req.user, exam);
+
+    const statsByExamId = await getExamAttemptStats([exam._id]);
+    const attemptStats = statsByExamId.get(String(exam._id)) || { isLocked: false };
+    if (attemptStats.isLocked) {
+      res.status(409);
+      throw new Error('This exam cannot be deleted because students have already started it. Deactivate it instead.');
+    }
 
     await Exam.findByIdAndDelete(id);
     res.json({ message: 'Exam deleted' });

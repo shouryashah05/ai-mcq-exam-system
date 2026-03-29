@@ -8,7 +8,7 @@ const emailJobSchema = new mongoose.Schema({
     index: true,
   },
   recipient: { type: String, required: true, trim: true, lowercase: true, index: true },
-  token: { type: String, required: true },
+  token: { type: String, required: true }, // Encrypted token payload for delayed email delivery
   name: { type: String, required: true, trim: true },
   status: { type: String, enum: ['pending', 'processing', 'done', 'failed'], default: 'pending', index: true },
   attempts: { type: Number, default: 0 },

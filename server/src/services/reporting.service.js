@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
 const ExamAttempt = require('../models/examAttempt.model');
 const { serializeUser } = require('../utils/userIdentity');
+const { mergeAttemptExamSnapshot } = require('../utils/attemptSnapshot');
 
 const round = (value, digits = 2) => {
     if (!Number.isFinite(value)) return 0;
@@ -79,6 +80,7 @@ const appendTopicStats = (topicStats, answers) => {
 };
 
 const buildAttemptMetrics = (attempt, subjectFilter = null) => {
+    const resolvedAttempt = mergeAttemptExamSnapshot(attempt);
     const relevantAnswers = (attempt.answers || []).filter((answer) => {
         if (!subjectFilter) return true;
         return getAnswerSubject(answer) === subjectFilter;
@@ -100,7 +102,7 @@ const buildAttemptMetrics = (attempt, subjectFilter = null) => {
 
     return {
         attemptId: String(attempt._id),
-        examTitle: attempt.exam?.title || (attempt.mode === 'adaptive' ? 'Adaptive Test' : 'Exam'),
+        examTitle: resolvedAttempt.exam?.title || (attempt.mode === 'adaptive' ? 'Adaptive Test' : 'Exam'),
         mode: attempt.mode || 'standard',
         subjects: uniqueSubjects,
         totalQuestions,
@@ -158,7 +160,7 @@ const fetchAttempts = async ({ userId, startDate, endDate, examIds }) => {
 
     const attempts = await ExamAttempt.find(buildQuery({ userId, startDate, endDate, examIds }))
         .populate('user', 'name firstName lastName email role batch labBatch')
-        .populate('exam', 'title totalMarks passingMarks')
+        .populate('exam', 'title subject duration totalMarks passingMarks examType enableNegativeMarking')
         .populate('answers.questionId', 'subject topic marks')
         .sort({ endTime: 1, createdAt: 1 });
 

@@ -1,3 +1,5 @@
+const { mergeAttemptExamSnapshot } = require('./attemptSnapshot');
+
 const shuffleArray = (array = []) => {
   const shuffled = [...array];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -39,10 +41,12 @@ const serializeAttemptForClient = (attempt) => {
     return plainAttempt;
   }
 
+  const mergedAttempt = mergeAttemptExamSnapshot(plainAttempt);
+
   return {
-    ...plainAttempt,
-    answers: Array.isArray(plainAttempt.answers)
-      ? plainAttempt.answers.map((answer) => {
+    ...mergedAttempt,
+    answers: Array.isArray(mergedAttempt.answers)
+      ? mergedAttempt.answers.map((answer) => {
         const { shuffledOptions, optionOrder, correctOptionIndex, ...rest } = answer;
         return {
           ...rest,

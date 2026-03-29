@@ -74,7 +74,7 @@ exports.analyzeAttempt = async (attemptId) => {
             totalTimeSeconds: stats.time,
             lastDifficultyLevel: sampleAnswer?.questionId?.difficulty || 'Medium',
         });
-        topicUpdates.push({ topic, score: (stats.correct / stats.total) * 100, strength: analytics.strengthLevel });
+        topicUpdates.push({ topic, score: (stats.correct / stats.total) * 100 });
     }
 
     const refreshedAnalytics = await PerformanceAnalytics.find({

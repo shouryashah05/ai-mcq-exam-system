@@ -12,7 +12,7 @@ export const updateExam = (id, payload) => api.put(`/exams/${id}`, payload).then
 export const deleteExam = (id) => api.delete(`/exams/${id}`).then(r => r.data);
 
 // Adaptive Test
-export const startAdaptiveTest = (subject) => api.post('/adaptive/start', { subject }).then(r => r.data);
+export const startAdaptiveTest = (payload) => api.post('/adaptive/start', payload).then(r => r.data);
 export const submitAdaptiveAnswer = (payload) => api.post('/adaptive/submit', payload).then(r => r.data);
 export const endAdaptiveTest = (attemptId) => api.post('/adaptive/end', { attemptId }).then(r => r.data);
 

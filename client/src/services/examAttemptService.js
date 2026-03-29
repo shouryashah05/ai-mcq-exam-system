@@ -4,6 +4,9 @@ export const startExam = (examId) => api.post('/attempts/start', { examId }).the
 export const saveAnswer = (attemptId, questionId, selectedOption) =>
   api.put(`/attempts/${attemptId}/answer`, { questionId, selectedOption }).then(r => r.data);
 export const submitExam = (attemptId) => api.post(`/attempts/${attemptId}/submit`).then(r => r.data);
+export const cancelAttempt = (attemptId) => api.post(`/attempts/${attemptId}/cancel`).then(r => r.data);
+export const getActiveAttemptsForExam = (examId) => api.get(`/attempts/exam/${examId}/active`).then(r => r.data);
+export const resetAttempt = (attemptId) => api.post(`/attempts/${attemptId}/reset`).then(r => r.data);
 export const getAttempt = (attemptId) => api.get(`/attempts/${attemptId}`).then(r => r.data);
 export const getAttemptHistory = () => api.get('/attempts/history/list').then(r => r.data);
 

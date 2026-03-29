@@ -1,9 +1,12 @@
 const Question = require('../models/question.model');
 const PerformanceAnalytics = require('../models/performanceAnalytics.model');
-const Exam = require('../models/exam.model');
 
-exports.generateNextTest = async (userId, subject = 'Aptitude') => {
+exports.generateNextTest = async (userId, subject = 'Aptitude', options = {}) => {
     console.log(`🎲 Generating Adaptive Test for User: ${userId}, Subject: ${subject}`);
+
+    const totalQuestions = Math.min(Math.max(Number(options.totalQuestions) || 10, 5), 25);
+    const durationMinutes = Math.min(Math.max(Number(options.durationMinutes) || 20, 5), 60);
+    const enableNegativeMarking = Boolean(options.enableNegativeMarking);
 
     // Determine target subjects
     let targetSubjects = [subject];
@@ -27,7 +30,6 @@ exports.generateNextTest = async (userId, subject = 'Aptitude') => {
     const strongTopics = performance.filter(p => p.strengthLevel === 'Strong').map(p => p.topic);
 
     let selectedQuestions = [];
-    const TOTAL_QUESTIONS = 10;
 
     // Distribution Strategy:
     // 60% Weak (Revision/Improvement)
@@ -44,7 +46,7 @@ exports.generateNextTest = async (userId, subject = 'Aptitude') => {
     };
 
     // A. WEAK AREA QUESTIONS (Target: 6)
-    const weakCount = 6;
+    const weakCount = Math.max(1, Math.round(totalQuestions * 0.6));
     let weakQuestions = await fetchQuestions(weakTopics, weakCount, []);
 
     // If not enough weak questions, fill with Average
@@ -64,7 +66,7 @@ exports.generateNextTest = async (userId, subject = 'Aptitude') => {
 
     // C. NEW / RANDOM EXPLORATION (Target: remaining to reach 10)
     const currentCount = selectedQuestions.length;
-    const needed = TOTAL_QUESTIONS - currentCount;
+    const needed = totalQuestions - currentCount;
 
     if (needed > 0) {
         const randomQuestions = await Question.aggregate([
@@ -76,22 +78,21 @@ exports.generateNextTest = async (userId, subject = 'Aptitude') => {
 
     // 2. Create the Exam Object
     const examData = {
-        title: `Adaptive Test - ${new Date().toLocaleDateString()}`,
+        title: `Adaptive Practice - ${subject} - ${totalQuestions}Q`,
         examType: 'adaptive',
         subject: subject, // Store the selected subject (or Mixed)
         description: `Personalized test focusing on: ${weakTopics.slice(0, 3).join(', ') || 'General Practice'}`,
-        duration: 20, // 20 mins for 10 questions
+        duration: durationMinutes,
         totalMarks: selectedQuestions.length, // 1 mark each
         passingMarks: Math.ceil(selectedQuestions.length * 0.4),
         questions: selectedQuestions.map(q => q._id),
         startDate: new Date(),
         endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Valid for 7 days
-        createdBy: userId, // Self-generated
-        enableNegativeMarking: true
+        createdBy: userId,
+        enableNegativeMarking,
     };
 
-    const newExam = await new Exam(examData).save();
-    console.log(`✅ Generated Exam ${newExam._id} with ${selectedQuestions.length} questions.`);
+    console.log(`✅ Generated adaptive session blueprint with ${selectedQuestions.length} questions.`);
 
-    return newExam;
+    return examData;
 };

@@ -41,6 +41,8 @@ export default function AdminReports() {
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [filtersDirty, setFiltersDirty] = useState(false);
+  const [hasLoadedInitialReport, setHasLoadedInitialReport] = useState(false);
 
   const filters = useMemo(() => ({ startDate, endDate }), [startDate, endDate]);
   const availableSubjects = useMemo(() => {
@@ -83,9 +85,28 @@ export default function AdminReports() {
     setReportData(null);
     setError(null);
     setReportType(nextReportType);
+    setFiltersDirty(true);
+  };
+
+  const validateFilters = () => {
+    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+      return 'End date must be on or after start date.';
+    }
+
+    if (reportType !== 'subject-students' && !selectedStudentId) {
+      return 'Select a student before loading this report.';
+    }
+
+    return '';
   };
 
   const loadReport = async () => {
+    const validationError = validateFilters();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setReportData(null);
@@ -105,16 +126,22 @@ export default function AdminReports() {
       setError(err?.response?.data?.message || err.message);
     } finally {
       setLoading(false);
+      setFiltersDirty(false);
+      setHasLoadedInitialReport(true);
     }
   };
 
   useEffect(() => {
+    if (hasLoadedInitialReport) {
+      return;
+    }
+
     if (!selectedStudentId && reportType !== 'subject-students') {
       return;
     }
 
     loadReport();
-  }, [reportType, selectedStudentId, selectedSubject, startDate, endDate]);
+  }, [selectedStudentId, reportType, hasLoadedInitialReport]);
 
   const handleExportCsv = () => {
     if (!reportData) {
@@ -567,7 +594,7 @@ export default function AdminReports() {
           {reportType !== 'student-overall' && (
             <div className="report-filter-field">
               <label className="small">Subject</label>
-              <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}>
+              <select value={selectedSubject} onChange={e => { setSelectedSubject(e.target.value); setFiltersDirty(true); }}>
                 {availableSubjects.map(subject => (
                   <option key={subject} value={subject}>{subject}</option>
                 ))}
@@ -578,7 +605,7 @@ export default function AdminReports() {
           {reportType !== 'subject-students' && (
             <div className="report-filter-field">
               <label className="small">Student</label>
-              <select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)}>
+              <select value={selectedStudentId} onChange={e => { setSelectedStudentId(e.target.value); setFiltersDirty(true); }}>
                 {users.map(user => (
                   <option key={user._id} value={user._id}>{getDisplayName(user)} ({user.email})</option>
                 ))}
@@ -588,17 +615,23 @@ export default function AdminReports() {
 
           <div className="report-filter-field">
             <label className="small">Start Date</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setFiltersDirty(true); }} />
           </div>
 
           <div className="report-filter-field">
             <label className="small">End Date</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setFiltersDirty(true); }} />
           </div>
         </div>
 
+        {filtersDirty && !loading && (
+          <p className="text-muted" style={{ marginTop: 12, marginBottom: 0 }}>
+            Filters changed. Load Report to refresh the results.
+          </p>
+        )}
+
         <div className="report-filter-actions">
-          <button type="button" onClick={() => { setStartDate(''); setEndDate(''); }} className="button-secondary">
+          <button type="button" onClick={() => { setStartDate(''); setEndDate(''); setFiltersDirty(true); }} className="button-secondary">
             Clear Dates
           </button>
           <button type="button" onClick={handleExportCsv} disabled={!reportData || loading} className="button-secondary">

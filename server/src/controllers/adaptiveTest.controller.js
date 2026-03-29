@@ -3,11 +3,12 @@ const ExamAttempt = require('../models/examAttempt.model');
 const Question = require('../models/question.model'); // Added this import as it's used in submitAdaptiveAnswer
 const adaptiveTestService = require('../services/adaptiveTest.service');
 const performanceAnalysisService = require('../services/performanceAnalysis.service');
+const { buildExamSnapshot } = require('../utils/attemptSnapshot');
 const { buildShuffledOptionData } = require('../utils/questionPresentation');
 
 exports.startAdaptiveTest = async (req, res) => {
     try {
-        const { subject } = req.body;
+        const { subject, totalQuestions, durationMinutes, enableNegativeMarking } = req.body;
         const userId = req.user._id;
 
         console.log(`[Adaptive] Start Test Request. User: ${userId}, Subject: ${subject}`);
@@ -17,13 +18,17 @@ exports.startAdaptiveTest = async (req, res) => {
         }
 
         // Generate a new adaptive test
-        const exam = await adaptiveTestService.generateNextTest(userId, subject);
+        const exam = await adaptiveTestService.generateNextTest(userId, subject, {
+            totalQuestions,
+            durationMinutes,
+            enableNegativeMarking,
+        });
 
         // Create an attempt for this new exam
         const attempt = new ExamAttempt({
             user: userId,
-            exam: exam._id,
             mode: 'adaptive',
+            examSnapshot: buildExamSnapshot(exam),
             startTime: new Date(),
             status: 'in-progress',
             answers: []
@@ -85,7 +90,6 @@ exports.startAdaptiveTest = async (req, res) => {
         res.status(201).json({
             success: true,
             data: {
-                examId: exam._id,
                 attemptId: attempt._id,
                 title: exam.title,
                 duration: exam.duration,
@@ -93,7 +97,7 @@ exports.startAdaptiveTest = async (req, res) => {
                 message: 'Adaptive test generated successfully',
                 question: firstQuestionData,
                 currentQuestionNumber: 1,
-                totalQuestions: 10
+                totalQuestions: exam.totalMarks
             }
         });
 
@@ -228,7 +232,9 @@ exports.submitAdaptiveAnswer = async (req, res) => {
             }
         }
 
-        if (nextQuestion && attempt.answers.length < 10) {
+        const targetQuestionCount = Math.max(Number(attempt.examSnapshot?.totalMarks) || 10, 1);
+
+        if (nextQuestion && attempt.answers.length < targetQuestionCount) {
             const shuffledOptionData = buildShuffledOptionData(nextQuestion);
             // Add next question to attempt
             attempt.answers.push({
@@ -247,7 +253,7 @@ exports.submitAdaptiveAnswer = async (req, res) => {
                     correctAnswer: answerEntry.correctOptionIndex,
                     explanation: currentQuestion.explanation,
                     currentQuestionNumber: attempt.answers.length,
-                    totalQuestions: 10,
+                    totalQuestions: targetQuestionCount,
                     nextQuestion: {
                         _id: nextQuestion._id,
                         questionText: nextQuestion.questionText,

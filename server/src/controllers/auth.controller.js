@@ -5,6 +5,7 @@ const { getCookieOptions } = require('../config/env');
 const logger = require('../utils/logger');
 const { buildEnrollmentNo, normalizeRoleIdentifier, normalizeUserIdentity, serializeUser } = require('../utils/userIdentity');
 const { queueVerificationEmail } = require('../services/email.service');
+const { createTokenRecord } = require('../utils/tokenSecurity');
 
 const signAuthToken = (user) => jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
   expiresIn: process.env.JWT_EXPIRES_IN || '30d',
@@ -64,9 +65,7 @@ const register = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(password, salt);
 
-    // Generate verification token
-    const crypto = require('crypto');
-    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationToken = createTokenRecord();
 
     const user = await User.create({
       name: normalizedIdentity.name,
@@ -76,14 +75,14 @@ const register = async (req, res, next) => {
       password: hashed,
       role,
       enrollmentNo,
-      verificationToken,
+      verificationToken: verificationToken.hashedToken,
       isVerified: false // Require email verification for students
     });
 
     // Send verification email (only for students, admins are pre-verified)
     if (role !== 'admin') {
       try {
-        await queueVerificationEmail(user.email, verificationToken, normalizedIdentity.name);
+        await queueVerificationEmail(user.email, verificationToken.rawToken, normalizedIdentity.name);
       } catch (emailError) {
         logger.warn('Failed to queue verification email', { error: emailError, email: user.email });
         // Don't fail registration if email fails, but log it

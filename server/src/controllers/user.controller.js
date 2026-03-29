@@ -3,8 +3,9 @@ const crypto = require('crypto');
 const User = require('../models/user.model');
 const AcademicClass = require('../models/academicClass.model');
 const { buildAdminId, buildEmployeeId, buildEnrollmentNo, normalizeRoleIdentifier, normalizeUserIdentity, serializeUser } = require('../utils/userIdentity');
-const { generateToken, queueAccountSetupEmail, queuePasswordResetEmail } = require('../services/email.service');
+const { queueAccountSetupEmail, queuePasswordResetEmail } = require('../services/email.service');
 const { SUBJECT_OPTIONS } = require('../utils/subjects');
+const { createTokenRecord } = require('../utils/tokenSecurity');
 
 const buildPlaceholderPassword = () => `Invite#${crypto.randomBytes(8).toString('hex')}`;
 const MAX_BULK_USERS = 500;
@@ -174,20 +175,20 @@ const ensureUserUniqueness = async ({ normalizedEmail, normalizedEnrollment, nor
 };
 
 const issuePasswordAccessLink = async (user, mode = 'setup') => {
-  const token = generateToken();
-  user.resetPasswordToken = token;
+  const token = createTokenRecord();
+  user.resetPasswordToken = token.hashedToken;
   user.resetPasswordExpires = new Date(Date.now() + ((mode === 'setup' || mode === 'invite') ? 24 * 3600000 : 3600000));
   await user.save();
 
   if (process.env.NODE_ENV === 'test') {
-    return token;
+    return token.rawToken;
   }
 
   const displayName = user.name;
   if (mode === 'setup' || mode === 'invite') {
-    await queueAccountSetupEmail(user.email, token, displayName);
+    await queueAccountSetupEmail(user.email, token.rawToken, displayName);
   } else {
-    await queuePasswordResetEmail(user.email, token, displayName);
+    await queuePasswordResetEmail(user.email, token.rawToken, displayName);
   }
 
   return null;

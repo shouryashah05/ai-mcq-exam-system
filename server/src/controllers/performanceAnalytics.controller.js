@@ -1,26 +1,112 @@
 const mongoose = require('mongoose');
+const User = require('../models/user.model');
 const PerformanceAnalytics = require('../models/performanceAnalytics.model');
 const ExamAttempt = require('../models/examAttempt.model');
 const Question = require('../models/question.model');
 const { applyAnalyticsAggregateUpdate } = require('../services/analyticsAggregation.service');
 const logger = require('../utils/logger');
+const { getManagedStudentFilter, getManagedSubjects, isTeacher } = require('../utils/permissions');
 const {
     getStudentOverallReport,
     getStudentSubjectHistoryReport,
 } = require('../services/reporting.service');
 
-function ensureSelfOrAdmin(req, userId) {
+async function resolveStudentAnalyticsScope(req, userId, requestedSubject = null) {
     const requestUserId = String(req.user?._id || req.user?.id || '');
     if (req.user?.role === 'admin') {
-        return;
+        return {
+            userObjectId: new mongoose.Types.ObjectId(userId),
+            subjectFilter: null,
+            allowedSubjects: null,
+        };
     }
 
-    if (requestUserId !== String(userId)) {
+    if (requestUserId === String(userId)) {
+        return {
+            userObjectId: new mongoose.Types.ObjectId(userId),
+            subjectFilter: null,
+            allowedSubjects: null,
+        };
+    }
+
+    if (!isTeacher(req.user)) {
         const error = new Error('Forbidden');
         error.statusCode = 403;
         throw error;
     }
+
+    const managedStudentFilter = getManagedStudentFilter(req.user);
+    if (!managedStudentFilter) {
+        const error = new Error('Forbidden');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    const scopedStudent = await User.findOne({ _id: userId, ...managedStudentFilter }).select('_id');
+    if (!scopedStudent) {
+        const error = new Error('Forbidden');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    const allowedSubjects = getManagedSubjects(req.user);
+    if (requestedSubject && allowedSubjects.length > 0 && !allowedSubjects.includes(requestedSubject)) {
+        const error = new Error('Forbidden');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return {
+        userObjectId: new mongoose.Types.ObjectId(userId),
+        subjectFilter: allowedSubjects.length > 0 ? allowedSubjects : null,
+        allowedSubjects,
+    };
 }
+
+const applyTeacherScopeToReport = (report, allowedSubjects) => {
+    if (!report || !Array.isArray(allowedSubjects) || allowedSubjects.length === 0) {
+        return report;
+    }
+
+    const filteredSubjects = Array.isArray(report.subjects)
+        ? report.subjects.filter((subjectEntry) => allowedSubjects.includes(subjectEntry.subject))
+        : [];
+    const filteredRecentAttempts = Array.isArray(report.recentAttempts)
+        ? report.recentAttempts.filter((attempt) => allowedSubjects.includes(attempt.subject))
+        : [];
+
+    const strongestSubject = filteredSubjects.length
+        ? [...filteredSubjects].sort((left, right) => right.avgPercentage - left.avgPercentage)[0]?.subject || 'N/A'
+        : 'N/A';
+    const weakestSubject = filteredSubjects.length
+        ? [...filteredSubjects].sort((left, right) => left.avgPercentage - right.avgPercentage)[0]?.subject || 'N/A'
+        : 'N/A';
+    const totalTests = filteredSubjects.reduce((sum, entry) => sum + (entry.testsTaken || 0), 0);
+    const averagePercentage = filteredSubjects.length
+        ? Number((filteredSubjects.reduce((sum, entry) => sum + (entry.avgPercentage || 0), 0) / filteredSubjects.length).toFixed(2))
+        : 0;
+    const accuracy = filteredSubjects.length
+        ? Number((filteredSubjects.reduce((sum, entry) => sum + (entry.accuracy || 0), 0) / filteredSubjects.length).toFixed(2))
+        : 0;
+    const avgTimeSeconds = filteredSubjects.length
+        ? Number((filteredSubjects.reduce((sum, entry) => sum + (entry.avgTimeSeconds || 0), 0) / filteredSubjects.length).toFixed(2))
+        : 0;
+
+    return {
+        ...report,
+        subjects: filteredSubjects,
+        recentAttempts: filteredRecentAttempts,
+        overview: {
+            ...report.overview,
+            totalTests,
+            averagePercentage,
+            accuracy,
+            strongestSubject,
+            weakestSubject,
+            avgTimeSeconds,
+        },
+    };
+};
 
 // Optional Redis-backed cache for AI insights (fallback to in-memory)
 let redisClient = null;
@@ -303,12 +389,12 @@ exports.updatePerformanceMetrics = async (userId, examAttemptId) => {
 exports.getStudentAnalytics = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { userObjectId, subjectFilter } = await resolveStudentAnalyticsScope(req, userId);
         logger.info('Fetching student analytics', { userId });
 
         // Aggregation to get subject-wise summary
         const subjectStats = await PerformanceAnalytics.aggregate([
-            { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+            { $match: { userId: userObjectId, ...(subjectFilter ? { subject: { $in: subjectFilter } } : {}) } },
             {
                 $group: {
                     _id: "$subject",
@@ -330,11 +416,12 @@ exports.getStudentAnalytics = async (req, res) => {
 exports.getWeakTopics = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { userObjectId, subjectFilter } = await resolveStudentAnalyticsScope(req, userId);
         const threshold = req.query.threshold || 50; // Default 50% accuracy
 
         const weakTopics = await PerformanceAnalytics.find({
-            userId,
+            userId: userObjectId,
+            ...(subjectFilter ? { subject: { $in: subjectFilter } } : {}),
             accuracy: { $lt: threshold },
             totalAttempts: { $gt: 5 } // Only consider topics with enough data
         }).sort({ accuracy: 1 }).limit(10);
@@ -349,10 +436,10 @@ exports.getWeakTopics = async (req, res) => {
 exports.getPlacementReadiness = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { userObjectId, subjectFilter } = await resolveStudentAnalyticsScope(req, userId);
 
         // Fetch all analytics for the user
-        const analytics = await PerformanceAnalytics.find({ userId: new mongoose.Types.ObjectId(userId) });
+        const analytics = await PerformanceAnalytics.find({ userId: userObjectId, ...(subjectFilter ? { subject: { $in: subjectFilter } } : {}) });
 
         if (!analytics || analytics.length === 0) {
             return res.json({
@@ -388,7 +475,7 @@ exports.getPlacementReadiness = async (req, res) => {
 exports.getAIInsights = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { userObjectId, subjectFilter } = await resolveStudentAnalyticsScope(req, userId);
         const axios = require('axios'); // Lazy load or move to top
 
         const cached = await getCache(`ai_insights_${userId}`);
@@ -396,18 +483,28 @@ exports.getAIInsights = async (req, res) => {
 
         // 1. Prepare Data for AI
         // Fetch last 8 exam attempts (more data for better trend)
-        const recentAttempts = await ExamAttempt.find({ user: userId, status: 'completed' })
+        const recentAttempts = await ExamAttempt.find({ user: userObjectId, status: 'completed' })
             .sort({ endTime: -1 })
             .limit(8);
 
-        const recentScores = recentAttempts.map(a => {
-            const totalQ = a.answers?.length || 1;
-            const sc = typeof a.score === 'number' ? a.score : 0;
-            return Math.round((sc / totalQ) * 100);
-        }).reverse(); // oldest -> newest
+        const recentScores = recentAttempts
+            .map((attempt) => {
+                const relevantAnswers = Array.isArray(subjectFilter)
+                    ? (attempt.answers || []).filter((answer) => subjectFilter.includes(answer.subject))
+                    : (attempt.answers || []);
+                if (!relevantAnswers.length) {
+                    return null;
+                }
+
+                const totalQ = relevantAnswers.length || 1;
+                const sc = relevantAnswers.reduce((sum, answer) => sum + (typeof answer.marksAwarded === 'number' ? answer.marksAwarded : 0), 0);
+                return Math.round((sc / totalQ) * 100);
+            })
+            .filter((entry) => entry !== null)
+            .reverse(); // oldest -> newest
 
         // Fetch Topic Accuracy
-        const riskAnalytics = await PerformanceAnalytics.find({ userId });
+        const riskAnalytics = await PerformanceAnalytics.find({ userId: userObjectId, ...(subjectFilter ? { subject: { $in: subjectFilter } } : {}) });
         const topicAccuracy = {};
         let totalAvgTime = 0;
 
@@ -489,11 +586,11 @@ exports.getAIInsights = async (req, res) => {
 exports.getSubjectProficiency = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { userObjectId, subjectFilter } = await resolveStudentAnalyticsScope(req, userId);
         // Aggregate per-subject and per-topic stats
         // Use sums to compute weighted accuracy per topic (sum(correct)/sum(total))
         const agg = await PerformanceAnalytics.aggregate([
-            { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+            { $match: { userId: userObjectId, ...(subjectFilter ? { subject: { $in: subjectFilter } } : {}) } },
             { $group: { _id: { subject: '$subject', topic: '$topic' }, attempts: { $sum: '$totalAttempts' }, correct: { $sum: '$correctAttempts' } } },
             { $addFields: { accuracy: { $cond: [{ $gt: ['$attempts', 0] }, { $multiply: [{ $divide: ['$correct', '$attempts'] }, 100] }, 0] } } },
             { $sort: { 'accuracy': -1 } }
@@ -526,7 +623,7 @@ exports.getSubjectProficiency = async (req, res) => {
 exports.getStudentReportOverall = async (req, res) => {
     try {
         const { userId } = req.params;
-        ensureSelfOrAdmin(req, userId);
+        const { allowedSubjects } = await resolveStudentAnalyticsScope(req, userId);
 
         const report = await getStudentOverallReport({
             userId,
@@ -538,7 +635,7 @@ exports.getStudentReportOverall = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Student not found' });
         }
 
-        res.json({ success: true, data: report });
+        res.json({ success: true, data: applyTeacherScopeToReport(report, allowedSubjects) });
     } catch (error) {
         const statusCode = error.statusCode || 500;
         res.status(statusCode).json({ success: false, message: error.message });
@@ -549,7 +646,7 @@ exports.getStudentReportSubjectHistory = async (req, res) => {
     try {
         const { userId } = req.params;
         const { subject, startDate, endDate } = req.query;
-        ensureSelfOrAdmin(req, userId);
+        await resolveStudentAnalyticsScope(req, userId, subject);
 
         if (!subject) {
             return res.status(400).json({ success: false, message: 'Subject is required' });

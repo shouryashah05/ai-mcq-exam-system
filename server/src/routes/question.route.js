@@ -7,12 +7,9 @@ const { createQuestionValidation, updateQuestionValidation, bulkCreateQuestionsV
 
 const router = express.Router();
 
-// Public: get questions (student view)
-router.get('/', optionalVerifyToken, getQuestions);
-router.get('/:id', optionalVerifyToken, getQuestionById);
-
-// Content managers: create, update, delete
 router.use(verifyToken, authorizeRoles('admin', 'teacher'));
+router.get('/', getQuestions);
+router.get('/:id', getQuestionById);
 router.post('/upload-image', questionImageUpload.single('image'), uploadQuestionImage);
 router.post('/delete-image', deleteQuestionImage);
 router.post('/', createQuestionValidation, createQuestion);
